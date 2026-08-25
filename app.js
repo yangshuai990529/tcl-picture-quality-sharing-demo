@@ -480,6 +480,7 @@ function openNameModal() {
 
 function openParameterPreview(type, recipe) {
   const isShare = type === 'share';
+  const canSave = isShare || type === 'import';
   openModal(`
     <div class="modal-head"><div><div class="modal-tag">${isShare ? '分享参数' : '导入方案'}</div><h2 class="modal-title">${isShare ? '分享参数预览' : '导入方案预览'}</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
@@ -491,13 +492,13 @@ function openParameterPreview(type, recipe) {
     </div>
     <div class="modal-foot">
       <button class="secondary-btn focusable" type="button" data-modal-close data-focus-key="preview-back">返回</button>
-      ${isShare ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存至我的方案' : '保存至我的方案'}</button>` : ''}
+      ${canSave ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存至我的方案' : '保存至我的方案'}</button>` : ''}
       <button class="primary-btn focusable" type="button" id="preview-action" data-focus-key="preview-action" data-autofocus>${isShare ? (recipe.shareCode ? '重新生成分享码' : '生成分享码') : '应用方案'}</button>
     </div>`, true);
   modalRoot.querySelector('#preview-action').addEventListener('click', () => isShare ? generateShareCode(recipe) : openApplyConfirm(recipe));
-  if (isShare) {
+  if (canSave) {
     modalRoot.querySelector('#save-preview').addEventListener('click', (event) => {
-      const saved = saveRecipeToLibrary(recipe);
+      const saved = saveRecipeToLibrary(recipe, isShare ? '我创建的' : '导入方案');
       recipe.saved = true;
       event.currentTarget.textContent = '已保存至我的方案';
       event.currentTarget.disabled = true;
