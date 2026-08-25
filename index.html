@@ -1,24 +1,29 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#11151e" />
-    <title>画质方案管理 | TCL TV Demo</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <div id="tv-stage">
-      <section id="security-home-root" class="security-home" aria-label="安全卫士首页"></section>
 
-      <main id="management-root" class="tv-shell" aria-label="TCL 电视画质方案管理演示" hidden>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#11151e" />
+  <title>画质方案管理 | TCL TV Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <div id="tv-stage">
+    <section id="security-home-root" class="security-home" aria-label="安全卫士首页"></section>
+
+    <main id="management-root" class="tv-shell" aria-label="TCL 电视画质方案管理演示" hidden>
       <aside class="sidebar">
         <div class="brand">画质方案管理</div>
         <div class="sidebar-rule"></div>
         <nav class="side-nav" aria-label="画质方案管理菜单">
-          <button class="nav-item active focusable" type="button" data-page="share" data-focus-key="nav-share"><span>画质参数分享</span></button>
-          <button class="nav-item focusable" type="button" data-page="import" data-focus-key="nav-import"><span>导入分享码</span></button>
-          <button class="nav-item focusable" type="button" data-page="library" data-focus-key="nav-library"><span>我的方案</span></button>
+          <button class="nav-item active focusable" type="button" data-page="share"
+            data-focus-key="nav-share"><span>画质参数分享</span></button>
+          <button class="nav-item focusable" type="button" data-page="import"
+            data-focus-key="nav-import"><span>导入分享方案</span></button>
+          <button class="nav-item focusable" type="button" data-page="library"
+            data-focus-key="nav-library"><span>管理我的方案</span></button>
         </nav>
       </aside>
 
@@ -33,11 +38,12 @@
 
         <div id="app" class="content"></div>
       </section>
-      </main>
-    </div>
+    </main>
+  </div>
 
-    <div id="modal-root" aria-live="polite"></div>
-    <div id="toast-root" class="toast-root" aria-live="polite"></div>
-    <script type="module" src="./app.js"></script>
-  </body>
+  <div id="modal-root" aria-live="polite"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+
 </html>
