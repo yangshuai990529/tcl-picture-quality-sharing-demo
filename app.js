@@ -35,6 +35,19 @@ const pageConfig = {
   library: { eyebrow: '我的方案', title: '我的方案', subtitle: '查看、应用或管理已保存的画质方案' },
 };
 
+const DEMO_SHARE_CODE = '58372416';
+const DEMO_SHARED_RECIPE = {
+  id: 'demo-shared-host-game',
+  name: '主机游戏 HDR',
+  signal: 'HDR',
+  mode: '游戏',
+  source: '导入方案',
+  created: '2026.08.24',
+  shareCode: DEMO_SHARE_CODE,
+  visual: 'hdr',
+  current: false,
+};
+
 
 // 当前用户的画质方案值：Demo 中以本地 Mock 数据模拟，菜单名称对应用户提供的画质菜单树。
 const previewGroups = [
@@ -94,17 +107,60 @@ function saveRecipes() {
 
 
 function saveRecipeToLibrary(recipe, source = '我创建的') {
-  const exists = state.recipes.some((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode && item.source !== '自动备份');
-  if (exists) return false;
+  const existing = state.recipes.find((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode && item.source !== '自动备份');
+  if (existing) {
+    if (/^\d{8}$/.test(normalizeShareCode(recipe.shareCode))) existing.shareCode = normalizeShareCode(recipe.shareCode);
+    saveRecipes();
+    return false;
+  }
   state.recipes.unshift({
     id: `r-${Date.now()}`,
     ...recipe,
+    shareCode: /^\d{8}$/.test(normalizeShareCode(recipe.shareCode)) ? normalizeShareCode(recipe.shareCode) : '',
     source,
     visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
     current: false,
   });
   saveRecipes();
   return true;
+}
+
+function normalizeShareCode(value = '') {
+  return String(value).replace(/\s/g, '');
+}
+
+function formatShareCode(value = '') {
+  const code = normalizeShareCode(value).replace(/\D/g, '').slice(0, 8);
+  return code.length > 4 ? `${code.slice(0, 4)} ${code.slice(4)}` : code;
+}
+
+function isObviousShareCode(code) {
+  return /^(\d)\1{7}$/.test(code)
+    || code === '12345678'
+    || code === '87654321'
+    || /^(\d{2})\1{3}$/.test(code);
+}
+
+function generateUniqueShareCode(recipe) {
+  const current = normalizeShareCode(recipe.shareCode);
+  const used = new Set(state.recipes
+    .map((item) => normalizeShareCode(item.shareCode))
+    .filter((code) => /^\d{8}$/.test(code) && code !== current));
+  let code = '';
+  do {
+    const random = crypto.getRandomValues(new Uint32Array(1))[0] % 100000000;
+    code = String(random).padStart(8, '0');
+  } while (used.has(code) || isObviousShareCode(code));
+  return code;
+}
+
+function findSharedRecipe(value) {
+  const code = normalizeShareCode(value);
+  if (!/^\d{8}$/.test(code)) return null;
+  const localRecipe = state.recipes.find((item) => normalizeShareCode(item.shareCode) === code);
+  if (localRecipe) return { ...localRecipe, saved: true };
+  if (code === DEMO_SHARE_CODE) return { ...DEMO_SHARED_RECIPE, saved: false };
+  return null;
 }
 
 
@@ -328,17 +384,31 @@ function renderImport() {
       <section class="import-card">
         <h2>导入画质方案</h2>
         <p>输入他人分享的方案码。导入后可预览完整参数，并确认是否应用到当前图效。</p>
-        <input id="share-code" data-focus-key="import-code" class="code-input focusable" maxlength="18" value="${escapeHtml(state.importedCode)}" placeholder="PQ-TCL-XXXXXXXX" aria-label="画质方案分享码" />
+        <input id="share-code" data-focus-key="import-code" class="code-input focusable" maxlength="9" inputmode="numeric" value="${escapeHtml(formatShareCode(state.importedCode))}" placeholder="0000 0000" aria-label="画质方案分享码" />
         <div class="import-actions"><button class="primary-btn focusable" id="import-submit" data-focus-key="import-submit" type="button">导入方案</button></div>
-        <div class="code-examples"><span>演示分享码：</span><button type="button" class="code-example focusable" data-focus-key="import-example" data-code="PQ-TCL-2FRZP417">PQ-TCL-2FRZP417</button></div>
+        <div class="code-examples"><span>演示分享码：</span><button type="button" class="code-example focusable" data-focus-key="import-example" data-code="${DEMO_SHARE_CODE}">${formatShareCode(DEMO_SHARE_CODE)}</button></div>
       </section>
     </div>`;
   const input = app.querySelector('#share-code');
-  app.querySelector('.code-example').addEventListener('click', () => { input.value = 'PQ-TCL-2FRZP417'; input.focus(); });
+  const normalizeInput = () => {
+    state.importedCode = input.value.replace(/\s/g, '').replace(/\D/g, '').slice(0, 8);
+    input.value = formatShareCode(state.importedCode);
+  };
+  input.addEventListener('input', normalizeInput);
+  app.querySelector('.code-example').addEventListener('click', () => {
+    state.importedCode = DEMO_SHARE_CODE;
+    input.value = formatShareCode(DEMO_SHARE_CODE);
+    input.focus();
+  });
   app.querySelector('#import-submit').addEventListener('click', () => {
-    state.importedCode = input.value.trim().toUpperCase();
-    if (state.importedCode === 'PQ-TCL-2FRZP417') openParameterPreview('import', { name: '主机游戏 HDR', signal: 'HDR', mode: '游戏', created: '2026.08.24' });
-    else showToast('请输入演示分享码 PQ-TCL-2FRZP417');
+    normalizeInput();
+    if (state.importedCode.length !== 8) {
+      showToast('请输入8位数字分享码');
+      return;
+    }
+    const recipe = findSharedRecipe(state.importedCode);
+    if (recipe) openParameterPreview('import', recipe);
+    else showToast('分享码无效或已失效');
   });
   restoreFocus(app);
 }
@@ -508,7 +578,7 @@ function openParameterPreview(type, recipe) {
 }
 
 function generateShareCode(recipe) {
-  recipe.shareCode = recipeCode(recipe);
+  recipe.shareCode = generateUniqueShareCode(recipe);
   recipe.saved = true;
   saveRecipeToLibrary(recipe);
   saveRecipes();
@@ -520,17 +590,13 @@ function openShareCode(recipe) {
   openModal(`
     <div class="modal-head"><div><div class="modal-tag">分享方案</div><h2 class="modal-title">分享码已生成</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
-      <div class="generated-code">${escapeHtml(recipe.shareCode)}</div>
+      <div class="generated-code">${escapeHtml(formatShareCode(recipe.shareCode))}</div>
       <div class="code-copy-note">将分享码发送给好友，对方可在“导入分享方案”中查看并应用方案。</div>
     </div>
     <div class="modal-foot"><button class="primary-btn focusable" type="button" id="code-done" data-focus-key="code-done" data-autofocus>完成</button></div>`);
   modalRoot.querySelector('#code-done').addEventListener('click', closeModal);
 }
 
-function recipeCode(recipe) {
-  const signal = recipe.signal === 'HDR' ? '2FRZP417' : recipe.signal === 'SDR' ? 'A92BF' : 'DV8Q7L';
-  return `PQ-TCL-${signal}`;
-}
 
 function openDeleteConfirm(recipe) {
   openModal(`
