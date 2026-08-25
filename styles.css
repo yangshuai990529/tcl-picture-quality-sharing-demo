@@ -622,3 +622,37 @@ body { min-height: 100dvh; overflow: auto; }
   .content { padding-top: 0; }
   .share-layout { margin-top: 24px; }
 }
+
+/* 分享页与导入页内容在主区域内居中展示，适配不同电视分辨率。 */
+.share-layout {
+  width: min(1500px, 100%);
+  max-width: 1500px;
+  height: auto;
+  min-height: 0;
+  margin: auto;
+  align-items: center;
+}
+.import-layout {
+  width: min(760px, 100%);
+  margin: auto;
+}
+.tv-canvas-active #tv-stage .share-layout { margin: auto; }
+
+@media (max-width: 980px) {
+  .share-layout { width: 100%; max-width: none; }
+}
+
+/* 主内容区采用 Flex 居中，让分享页与导入页在横向、纵向都保持居中。 */
+.content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.library-page {
+  width: 100%;
+  align-self: stretch;
+}
+
+@media (max-width: 700px) {
+  .content { align-items: flex-start; }
+}
