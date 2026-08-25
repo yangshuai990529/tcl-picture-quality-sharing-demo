@@ -398,7 +398,7 @@ function renderRecipeDetail() {
       </section>
     </div>`;
   app.querySelector('#detail-back').addEventListener('click', () => { state.selectedRecipe = null; renderLibrary(); });
-  app.querySelector('#detail-share').addEventListener('click', () => generateSharePoster(recipe));
+  app.querySelector('#detail-share').addEventListener('click', () => generateShareCode(recipe));
   app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
   app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
   restoreFocus(app);
@@ -494,7 +494,7 @@ function openParameterPreview(type, recipe) {
       ${isShare ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存至我的方案' : '保存至我的方案'}</button>` : ''}
       <button class="primary-btn focusable" type="button" id="preview-action" data-focus-key="preview-action" data-autofocus>${isShare ? (recipe.shareCode ? '重新生成分享码' : '生成分享码') : '应用方案'}</button>
     </div>`, true);
-  modalRoot.querySelector('#preview-action').addEventListener('click', () => isShare ? generateSharePoster(recipe) : openApplyConfirm(recipe));
+  modalRoot.querySelector('#preview-action').addEventListener('click', () => isShare ? generateShareCode(recipe) : openApplyConfirm(recipe));
   if (isShare) {
     modalRoot.querySelector('#save-preview').addEventListener('click', (event) => {
       const saved = saveRecipeToLibrary(recipe);
@@ -506,39 +506,24 @@ function openParameterPreview(type, recipe) {
   }
 }
 
-function generateSharePoster(recipe) {
+function generateShareCode(recipe) {
   recipe.shareCode = recipeCode(recipe);
   recipe.saved = true;
   saveRecipeToLibrary(recipe);
   saveRecipes();
-  openSharePoster(recipe);
-  showToast('分享海报已生成');
+  openShareCode(recipe);
+  showToast('分享码已生成');
 }
 
-function openSharePoster(recipe) {
-  const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
+function openShareCode(recipe) {
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">分享海报</div><h2 class="modal-title">画质方案分享海报</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
-    <div class="modal-body poster-modal-body">
-      <article class="share-poster" aria-label="画质方案分享海报">
-        <div class="share-poster-art"><img src="./assets/share-poster-visual.svg" alt="电影感山景" /></div>
-        <div class="share-poster-content">
-          <div class="poster-brand">TCL 画质方案</div>
-          <div class="poster-copy">把这一刻的画质<br />分享给懂的人</div>
-          <div class="poster-rule"></div>
-          <div class="poster-name">${escapeHtml(recipe.name)}</div>
-          <div class="poster-meta"><span>${escapeHtml(signal)}</span><i></i><span>${escapeHtml(recipe.mode)}</span></div>
-          <div class="poster-code-block"><span>方案分享码</span><b>${escapeHtml(recipe.shareCode)}</b></div>
-          <div class="poster-note">接收方在“导入分享码”中输入此码，即可预览并应用方案。</div>
-        </div>
-      </article>
+    <div class="modal-head"><div><div class="modal-tag">分享方案</div><h2 class="modal-title">分享码已生成</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <div class="generated-code">${escapeHtml(recipe.shareCode)}</div>
+      <div class="code-copy-note">将分享码发送给好友，对方可在“导入分享方案”中查看并应用方案。</div>
     </div>
-    <div class="modal-foot"><button class="secondary-btn focusable" type="button" id="poster-back" data-focus-key="poster-back">返回参数预览</button><button class="primary-btn focusable" type="button" id="poster-done" data-focus-key="poster-done" data-autofocus>完成</button></div>`, true, 'poster-modal');
-  modalRoot.querySelector('#poster-back').addEventListener('click', () => {
-    state.focusKey = 'preview-action';
-    openParameterPreview('share', recipe);
-  });
-  modalRoot.querySelector('#poster-done').addEventListener('click', closeModal);
+    <div class="modal-foot"><button class="primary-btn focusable" type="button" id="code-done" data-focus-key="code-done" data-autofocus>完成</button></div>`);
+  modalRoot.querySelector('#code-done').addEventListener('click', closeModal);
 }
 
 function recipeCode(recipe) {
