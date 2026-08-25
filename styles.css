@@ -611,3 +611,14 @@ body { min-height: 100dvh; overflow: auto; }
   .share-poster-art::after { background: linear-gradient(0deg, rgba(9,14,22,.92), rgba(9,14,22,0) 62%); }
   .share-poster-content { min-height: 360px; }
 }
+
+/* 分享页顶部标题区已移除，内容从主区域上方开始展示。 */
+.page-header { display: none; }
+.content { padding-top: 0; }
+.share-layout { margin-top: clamp(24px, 4vh, 64px); }
+.tv-canvas-active #tv-stage .share-layout { margin-top: 42px; }
+
+@media (max-width: 700px) {
+  .content { padding-top: 0; }
+  .share-layout { margin-top: 24px; }
+}
