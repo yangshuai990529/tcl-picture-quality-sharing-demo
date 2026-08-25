@@ -336,7 +336,6 @@ function renderImport() {
         <input id="share-code" data-focus-key="import-code" class="code-input focusable" maxlength="18" value="${escapeHtml(state.importedCode)}" placeholder="PQ-TCL-XXXXXXXX" aria-label="画质方案分享码" />
         <div class="import-actions"><button class="primary-btn focusable" id="import-submit" data-focus-key="import-submit" type="button">导入方案</button></div>
         <div class="code-examples"><span>演示分享码：</span><button type="button" class="code-example focusable" data-focus-key="import-example" data-code="PQ-TCL-2FRZP417">PQ-TCL-2FRZP417</button></div>
-        <div class="import-note"><strong>提示</strong><span>应用方案前，系统会自动备份当前 ${escapeHtml(currentContext())} 的画质参数。</span></div>
       </section>
     </div>`;
   const input = app.querySelector('#share-code');
