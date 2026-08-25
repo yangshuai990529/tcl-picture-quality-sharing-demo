@@ -7,6 +7,9 @@ const toastRoot = document.querySelector('#toast-root');
 const pageTitle = document.querySelector('#page-title');
 const pageSubtitle = document.querySelector('#page-subtitle');
 const eyebrow = document.querySelector('#eyebrow');
+const networkControl = document.querySelector('#network-toggle');
+const networkStatus = document.querySelector('#network-status');
+const networkStatusDot = document.querySelector('.network-status-dot');
 
 const data = await fetch('./data/quality-menu-parameters.json').then((response) => response.json());
 const parameters = data.items;
@@ -22,6 +25,10 @@ const state = {
   focusKey: null,
   previousFocusElement: null,
   previousFocusKey: null,
+  busy: false,
+  networkAvailable: localStorage.getItem('tcl-picture-network') !== 'offline',
+  appliedContexts: JSON.parse(localStorage.getItem('tcl-picture-applied-contexts') || '{}'),
+  cloudRecipes: JSON.parse(localStorage.getItem('tcl-picture-cloud-recipes') || '{}'),
   recipes: JSON.parse(localStorage.getItem('tcl-picture-recipes') || 'null') || [
     { id: 'r1', name: '主机游戏 HDR', signal: 'HDR', mode: '游戏', source: '我创建的', created: '今天 14:25', visual: 'hdr', current: true },
     { id: 'r2', name: '周末影院', signal: 'SDR', mode: '电影/图片', source: '我创建的', created: '昨天 21:16', visual: 'cinema' },
@@ -101,28 +108,59 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#039;');
 }
 
+function renderNetworkControl() {
+  const online = state.networkAvailable;
+  networkStatus.textContent = online ? '网络正常' : '无网络';
+  networkControl.textContent = online ? '断开网络' : '恢复网络';
+  networkControl.classList.toggle('offline', !online);
+  networkControl.setAttribute('aria-pressed', String(!online));
+  networkStatusDot.classList.toggle('offline', !online);
+}
+
+function toggleNetworkSimulation() {
+  state.networkAvailable = !state.networkAvailable;
+  localStorage.setItem('tcl-picture-network', state.networkAvailable ? 'online' : 'offline');
+  renderNetworkControl();
+  showToast(state.networkAvailable ? '网络已恢复。' : '已断开网络，进入无网模拟状态。');
+}
+
 function saveRecipes() {
   localStorage.setItem('tcl-picture-recipes', JSON.stringify(state.recipes));
+  localStorage.setItem('tcl-picture-applied-contexts', JSON.stringify(state.appliedContexts));
+  localStorage.setItem('tcl-picture-cloud-recipes', JSON.stringify(state.cloudRecipes));
 }
 
 
+const MAX_LIBRARY_RECIPES = 30;
+
 function saveRecipeToLibrary(recipe, source = '我创建的') {
-  const existing = state.recipes.find((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode && item.source !== '自动备份');
-  if (existing) {
-    if (/^\d{8}$/.test(normalizeShareCode(recipe.shareCode))) existing.shareCode = normalizeShareCode(recipe.shareCode);
+  const shareCode = normalizeShareCode(recipe.shareCode);
+  const hasShareCode = /^\d{8}$/.test(shareCode);
+  const existingById = recipe.id && state.recipes.find((item) => item.id === recipe.id);
+  const existingByCode = hasShareCode && state.recipes.find((item) => item.id !== recipe.id && normalizeShareCode(item.shareCode) === shareCode);
+
+  // 同一分享码只允许保留一条本地方案记录。
+  if (existingById || existingByCode) {
+    const existing = existingById || existingByCode;
+    if (hasShareCode) existing.shareCode = shareCode;
     saveRecipes();
-    return false;
+    return { saved: false, duplicate: true, recipe: existing };
   }
-  state.recipes.unshift({
+  if (state.recipes.length >= MAX_LIBRARY_RECIPES) {
+    return { saved: false, limit: true, recipe: null };
+  }
+
+  const savedRecipe = {
     id: `r-${Date.now()}`,
     ...recipe,
-    shareCode: /^\d{8}$/.test(normalizeShareCode(recipe.shareCode)) ? normalizeShareCode(recipe.shareCode) : '',
+    shareCode: hasShareCode ? shareCode : '',
     source,
     visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
     current: false,
-  });
+  };
+  state.recipes.unshift(savedRecipe);
   saveRecipes();
-  return true;
+  return { saved: true, duplicate: false, recipe: savedRecipe };
 }
 
 function normalizeShareCode(value = '') {
@@ -154,15 +192,180 @@ function generateUniqueShareCode(recipe) {
   return code;
 }
 
+function hasSavedShareCode(value) {
+  const code = normalizeShareCode(value);
+  return /^\d{8}$/.test(code)
+    && state.recipes.some((item) => normalizeShareCode(item.shareCode) === code);
+}
+
 function findSharedRecipe(value) {
   const code = normalizeShareCode(value);
   if (!/^\d{8}$/.test(code)) return null;
-  const localRecipe = state.recipes.find((item) => normalizeShareCode(item.shareCode) === code);
-  if (localRecipe) return { ...localRecipe, saved: true };
-  if (code === DEMO_SHARE_CODE) return { ...DEMO_SHARED_RECIPE, saved: false };
+  const cloudRecipe = state.cloudRecipes[code];
+  if (!cloudRecipe || cloudRecipe.valid === false || cloudRecipe.revoked) return null;
+  return { ...cloudRecipe, shareCode: code, saved: hasSavedShareCode(code) };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function validateSharedRecipe(value) {
+  const code = normalizeShareCode(value);
+  if (!/^\d{8}$/.test(code)) return { ok: false, message: '分享码无效，请检查后重新输入。' };
+  if (!state.networkAvailable || navigator.onLine === false) return { ok: false, message: '网络不可用，请检查网络连接。' };
+
+  await wait(650);
+  if (!state.networkAvailable || navigator.onLine === false) return { ok: false, message: '网络不可用，请检查网络连接。' };
+  const cloudRecipe = state.cloudRecipes[code];
+  if (!cloudRecipe || cloudRecipe.valid === false || cloudRecipe.revoked) {
+    return { ok: false, message: '分享码无效，请检查后重新输入。' };
+  }
+  if (!cloudRecipe.parameters || !cloudRecipe.signal || !cloudRecipe.mode || cloudRecipe.compatible === false) {
+    return { ok: false, message: '方案暂不可用，请稍后重试。' };
+  }
+  return {
+    ok: true,
+    recipe: {
+      ...cloudRecipe,
+      source: '分享导入',
+      shareCode: code,
+      saved: hasSavedShareCode(code),
+    },
+  };
+}
+
+function cloudSnapshot(recipe) {
+  return {
+    id: recipe.id,
+    name: recipe.name,
+    signal: recipe.signal,
+    mode: recipe.mode,
+    shareCode: normalizeShareCode(recipe.shareCode),
+    created: recipe.created,
+    source: '云端方案',
+    parameters: previewGroups,
+    model: 'TCL C11K MiniLED',
+    version: '灵悉 UI V5.2',
+    compatible: true,
+    valid: true,
+    revoked: false,
+  };
+}
+
+function ensureCloudShareSnapshots() {
+  let changed = false;
+  const demo = cloudSnapshot(DEMO_SHARED_RECIPE);
+  if (!state.cloudRecipes[DEMO_SHARE_CODE] || !state.cloudRecipes[DEMO_SHARE_CODE].parameters) {
+    state.cloudRecipes[DEMO_SHARE_CODE] = demo;
+    changed = true;
+  }
+  state.recipes.forEach((recipe) => {
+    const code = normalizeShareCode(recipe.shareCode);
+    const owner = recipe.source === '我创建的' || recipe.source === '自己创建';
+    if (!owner || !/^\d{8}$/.test(code) || (state.cloudRecipes[code] && state.cloudRecipes[code].parameters)) return;
+    state.cloudRecipes[code] = cloudSnapshot(recipe);
+    changed = true;
+  });
+  if (changed) saveRecipes();
+}
+
+function removeCloudShare(recipe) {
+  const code = normalizeShareCode(recipe.shareCode);
+  const owner = recipe.source === '我创建的' || recipe.source === '自己创建';
+  if (owner && /^\d{8}$/.test(code) && state.cloudRecipes[code]) {
+    delete state.cloudRecipes[code];
+    saveRecipes();
+  }
+}
+
+
+function contextKey(signal, mode) {
+  return `${signal}::${mode}`;
+}
+
+function recipeReference(recipe, previous = null) {
+  return {
+    id: recipe.id || '',
+    shareCode: normalizeShareCode(recipe.shareCode),
+    name: recipe.name,
+    signal: recipe.signal,
+    mode: recipe.mode,
+    previous,
+  };
+}
+
+function sameRecipeReference(recipe, reference) {
+  if (!recipe || !reference) return false;
+  const recipeCode = normalizeShareCode(recipe.shareCode);
+  if (recipeCode && reference.shareCode) return recipeCode === reference.shareCode;
+  return recipe.id === reference.id
+    || (recipe.name === reference.name && recipe.signal === reference.signal && recipe.mode === reference.mode);
+}
+
+function appliedRecordForContext(key) {
+  return state.appliedContexts[key] || null;
+}
+
+function findAppliedContextForRecipe(recipe) {
+  if (!recipe) return null;
+  const currentKey = contextKey(state.signal, state.mode);
+  const currentRecord = appliedRecordForContext(currentKey);
+  if (sameRecipeReference(recipe, currentRecord)) return { key: currentKey, record: currentRecord };
+  for (const [key, record] of Object.entries(state.appliedContexts)) {
+    if (sameRecipeReference(recipe, record)) return { key, record };
+  }
   return null;
 }
 
+function isRecipeApplied(recipe) {
+  const currentRecord = appliedRecordForContext(contextKey(state.signal, state.mode));
+  return sameRecipeReference(recipe, currentRecord);
+}
+
+function findRecipeByReference(reference) {
+  if (!reference) return null;
+  return state.recipes.find((item) => sameRecipeReference(item, reference)) || null;
+}
+
+function setRecipeCurrent(recipe, current) {
+  if (recipe) recipe.current = current;
+}
+
+function migrateCurrentRecipe() {
+  if (Object.keys(state.appliedContexts).length) return;
+  const current = state.recipes.find((recipe) => recipe.current);
+  if (!current) return;
+  state.appliedContexts[contextKey(current.signal, current.mode)] = recipeReference(current);
+  saveRecipes();
+}
+
+function normalizeImportedRecipeSources() {
+  let changed = false;
+  state.recipes.forEach((recipe) => {
+    if (recipe.source !== '导入方案') return;
+    recipe.source = '分享导入';
+    changed = true;
+  });
+  if (changed) saveRecipes();
+}
+
+function removeLegacyAutoBackups() {
+  const retained = state.recipes.filter((recipe) => recipe.source !== '自动备份');
+  if (retained.length === state.recipes.length) return;
+  state.recipes = retained;
+  saveRecipes();
+}
+
+function ensureImportedShareCodes() {
+  let changed = false;
+  state.recipes.forEach((recipe) => {
+    if (!['导入方案', '分享导入'].includes(recipe.source) || /^\d{8}$/.test(normalizeShareCode(recipe.shareCode))) return;
+    recipe.shareCode = generateUniqueShareCode(recipe);
+    changed = true;
+  });
+  if (changed) saveRecipes();
+}
 
 function focusKeyFor(element) {
   if (!element) return '';
@@ -170,7 +373,7 @@ function focusKeyFor(element) {
 }
 
 function visibleFocusables(scope = document) {
-  return [...scope.querySelectorAll('button:not([disabled]), input:not([disabled])')]
+  return [...scope.querySelectorAll('button:not([disabled]), input:not([disabled]), .focus-region[tabindex="0"]')]
     .filter((element) => element.offsetParent !== null && !element.closest('[hidden]'));
 }
 
@@ -229,6 +432,42 @@ function focusInDirection(direction) {
     next.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     rememberFocus(next);
   }
+}
+
+function focusDetailElement(key) {
+  const element = app.querySelector(`[data-focus-key="${key}"]`);
+  if (!element) return false;
+  element.focus({ preventScroll: true });
+  element.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  rememberFocus(element);
+  return true;
+}
+
+function scrollDetailParameters(direction) {
+  const region = app.querySelector('#detail-parameters');
+  const scroller = region?.querySelector('.parameter-groups');
+  if (!region || !scroller) return;
+  const amount = Math.max(180, Math.round(scroller.clientHeight * 0.72));
+  scroller.scrollBy({ top: direction === 'down' ? amount : -amount, behavior: 'smooth' });
+}
+
+function handleDetailArrowKey(key) {
+  if (state.page !== 'library' || !state.selectedRecipe) return false;
+  const target = document.activeElement;
+  const inSummary = target?.closest('.detail-summary');
+  const inParameters = target?.closest('#detail-parameters');
+
+  if (key === 'ArrowRight' && inSummary) {
+    return focusDetailElement('detail-parameters');
+  }
+  if (inParameters && key === 'ArrowLeft') {
+    return focusDetailElement('detail-apply');
+  }
+  if (inParameters && (key === 'ArrowUp' || key === 'ArrowDown')) {
+    scrollDetailParameters(key === 'ArrowDown' ? 'down' : 'up');
+    return true;
+  }
+  return false;
 }
 
 function handleBack() {
@@ -326,6 +565,11 @@ function currentContext() {
   return `${state.signal}${state.signal === 'HDR' ? '10' : ''} · ${state.mode}模式`;
 }
 
+function recipeContext(recipe) {
+  const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
+  return `${signal} · ${recipe.mode}模式`;
+}
+
 function render() {
   if (state.page === 'share') renderShare();
   if (state.page === 'import') renderImport();
@@ -400,15 +644,30 @@ function renderImport() {
     input.value = formatShareCode(DEMO_SHARE_CODE);
     input.focus();
   });
-  app.querySelector('#import-submit').addEventListener('click', () => {
+  app.querySelector('#import-submit').addEventListener('click', async () => {
     normalizeInput();
+    if (state.busy) return;
     if (state.importedCode.length !== 8) {
       showToast('请输入8位数字分享码');
       return;
     }
-    const recipe = findSharedRecipe(state.importedCode);
-    if (recipe) openParameterPreview('import', recipe);
-    else showToast('分享码无效或已失效');
+
+    state.busy = true;
+    openLoadingModal('校验中', '正在查询分享码及方案信息，请稍候');
+    try {
+      const result = await validateSharedRecipe(state.importedCode);
+      closeLoadingModal();
+      if (result.ok) {
+        openParameterPreview('import', result.recipe);
+      } else {
+        restoreFocus(app, 'import-submit');
+        showToast(result.message);
+      }
+    } catch (error) {
+      closeLoadingModal();
+      restoreFocus(app, 'import-submit');
+      showToast('加载失败，请稍后重试。');
+    }
   });
   restoreFocus(app);
 }
@@ -436,7 +695,7 @@ function recipeCard(recipe) {
   return `<button class="recipe-card focusable" type="button" data-recipe="${recipe.id}" data-focus-key="recipe-${recipe.id}" aria-label="查看方案 ${escapeHtml(recipe.name)}">
     <span class="recipe-visual ${recipe.visual || 'cinema'}"></span>
     <span class="recipe-tag">${escapeHtml(recipe.signal)}</span>
-    <span class="recipe-meta ${recipe.current ? 'current' : ''}">${recipe.current ? '当前使用' : escapeHtml(recipe.source)}</span>
+    <span class="recipe-meta ${isRecipeApplied(recipe) ? 'current' : ''}">${isRecipeApplied(recipe) ? '当前使用' : escapeHtml(recipe.source)}</span>
     <h3>${escapeHtml(recipe.name)}</h3>
     <p>${escapeHtml(recipe.mode)} · ${escapeHtml(recipe.created)}</p>
   </button>`;
@@ -444,38 +703,44 @@ function recipeCard(recipe) {
 
 function renderRecipeDetail() {
   const recipe = state.selectedRecipe;
+  const imported = recipe.source === '分享导入' || recipe.source === '导入方案';
+  const recipeType = imported ? '分享导入' : '自己创建';
+  const shareCode = normalizeShareCode(recipe.shareCode);
+  const applied = isRecipeApplied(recipe);
   app.innerHTML = `
-    <div class="library-detail">
-      <aside class="detail-summary">
-        <button class="detail-back focusable" type="button" id="detail-back" data-focus-key="detail-back">‹ 返回我的方案</button>
+    <div class="library-detail detail-focus-left">
+      <aside class="detail-summary" aria-label="方案信息与操作">
         <h2>${escapeHtml(recipe.name)}</h2>
         <p>本方案包含当前图像设置菜单中的画质参数定义，可再次分享或应用到匹配的图效环境。</p>
         <div class="detail-facts">
           <div><span>信号类型</span><b>${escapeHtml(recipe.signal)}</b></div>
           <div><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
-          <div><span>方案来源</span><b>${escapeHtml(recipe.source)}</b></div>
           <div><span>保存时间</span><b>${escapeHtml(recipe.created)}</b></div>
         </div>
+        <div class="detail-type ${imported ? 'is-imported' : 'is-created'}">
+          <span>方案类型</span>
+          <b>${recipeType}</b>
+          ${imported ? `<small>分享码：${escapeHtml(formatShareCode(shareCode) || '未生成')}</small>` : ''}
+        </div>
         <div class="detail-buttons">
-          <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">应用方案</button>
+          <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">${applied ? '取消应用' : '应用方案'}</button>
           <button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>
           <button class="danger-btn focusable" type="button" id="detail-delete" data-focus-key="detail-delete">删除方案</button>
         </div>
       </aside>
-      <section class="table-section detail-parameter-section">
-        <div class="preview-intro"><div><div class="choice-label">画质设置参数</div><p>仅显示设置项名称及当前方案值。</p></div><div class="group-count">${previewGroups.length} 个分组</div></div>
-        ${parameterGroups()}
+      <section class="table-section detail-parameter-section focusable" id="detail-parameters" tabindex="0" data-focus-key="detail-parameters" role="region" aria-label="画质设置参数，仅供查看">
+        <div class="preview-intro"><div><div class="choice-label">画质设置参数</div><p>仅显示设置项名称及当前方案值。</p></div><div class="group-count">${recipe.parameters?.length || previewGroups.length} 个分组</div></div>
+        ${parameterGroups(recipe.parameters || previewGroups)}
       </section>
     </div>`;
-  app.querySelector('#detail-back').addEventListener('click', () => { state.selectedRecipe = null; renderLibrary(); });
   app.querySelector('#detail-share').addEventListener('click', () => generateShareCode(recipe));
-  app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
+  app.querySelector('#detail-apply').addEventListener('click', () => applied ? openCancelApplyConfirm(recipe) : openApplyConfirm(recipe));
   app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
-  restoreFocus(app);
+  restoreFocus(app, 'detail-apply');
 }
 
-function parameterGroups() {
-  return `<div class="parameter-groups">${previewGroups.map((group) => `
+function parameterGroups(groups = previewGroups) {
+  return `<div class="parameter-groups">${groups.map((group) => `
     <section class="parameter-group">
       <div class="group-heading">
         <div><h3>${escapeHtml(group.title)}</h3></div>
@@ -488,7 +753,10 @@ function parameterGroups() {
 }
 
 function previewFacts(recipe, type) {
-  const status = type === 'share' ? recipe.shareCode ? '已生成' : '待生成' : recipe.current ? '当前使用' : '尚未应用';
+  const groupCount = recipe.parameters?.length || previewGroups.length;
+  const status = type === 'share'
+    ? recipe.shareCode ? '已生成' : '待生成'
+    : hasSavedShareCode(recipe.shareCode) ? '已存在此方案' : '新方案';
   const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
   return `<div class="preview-facts">
     <div class="preview-fact"><span>方案名称</span><b>${escapeHtml(recipe.name)}</b></div>
@@ -508,10 +776,26 @@ function openModal(content, wide = false, variant = '') {
     if (!element.dataset.focusKey) element.dataset.focusKey = element.id || `modal-control-${index}`;
   });
   const backdrop = modalRoot.querySelector('.modal-backdrop');
-  backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeModal(); });
+  if (!modalRoot.querySelector('.loading-modal')) {
+    backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeModal(); });
+  }
   modalRoot.querySelectorAll('[data-modal-close]').forEach((button) => button.addEventListener('click', closeModal));
   const first = modalRoot.querySelector('[data-autofocus], input, button');
   if (first) setTimeout(() => { first.focus(); rememberFocus(first); }, 0);
+}
+
+function openLoadingModal(title, message) {
+  openModal(`
+    <div class="loading-state" role="status" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+    </div>`, false, 'loading-modal');
+}
+
+function closeLoadingModal() {
+  state.busy = false;
+  closeModal({ restore: false });
 }
 
 function closeModal({ restore = true } = {}) {
@@ -532,7 +816,7 @@ function closeModal({ restore = true } = {}) {
 
 function openNameModal() {
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">分享参数</div><h2 class="modal-title">分享画质参数</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><div><h2 class="modal-title">分享画质参数</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
       <label class="name-label" for="recipe-name">方案名称</label>
       <input id="recipe-name" class="name-input focusable" value="${escapeHtml(state.draftName)}" maxlength="20" />
@@ -551,44 +835,55 @@ function openNameModal() {
 function openParameterPreview(type, recipe) {
   const isShare = type === 'share';
   const canSave = isShare || type === 'import';
+  if (!isShare) recipe.saved = hasSavedShareCode(recipe.shareCode);
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">${isShare ? '分享参数' : '导入方案'}</div><h2 class="modal-title">${isShare ? '分享参数预览' : '导入方案预览'}</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><div><h2 class="modal-title">${isShare ? '分享参数预览' : '导入方案预览'}</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
       ${previewFacts(recipe, type)}
       <section class="settings-preview">
-        <div class="settings-preview-head"><span class="group-count">${previewGroups.length} 个分组</span></div>
-        ${parameterGroups()}
+        <div class="settings-preview-head"><span class="group-count">${recipe.parameters?.length || previewGroups.length} 个分组</span></div>
+        ${parameterGroups(recipe.parameters || previewGroups)}
       </section>
     </div>
     <div class="modal-foot">
       <button class="secondary-btn focusable" type="button" data-modal-close data-focus-key="preview-back">返回</button>
-      ${canSave ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存至我的方案' : '保存至我的方案'}</button>` : ''}
+      ${canSave ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存' : '保存方案'}</button>` : ''}
       <button class="primary-btn focusable" type="button" id="preview-action" data-focus-key="preview-action" data-autofocus>${isShare ? (recipe.shareCode ? '重新生成分享码' : '生成分享码') : '应用方案'}</button>
     </div>`, true);
   modalRoot.querySelector('#preview-action').addEventListener('click', () => isShare ? generateShareCode(recipe) : openApplyConfirm(recipe));
   if (canSave) {
     modalRoot.querySelector('#save-preview').addEventListener('click', (event) => {
-      const saved = saveRecipeToLibrary(recipe, isShare ? '我创建的' : '导入方案');
+      if (event.currentTarget.disabled) return;
+      const result = saveRecipeToLibrary(recipe, isShare ? '我创建的' : '分享导入');
+      if (result.limit) {
+        showToast('方案数量已达上限，请删除部分方案后重试。');
+        return;
+      }
       recipe.saved = true;
-      event.currentTarget.textContent = '已保存至我的方案';
+      event.currentTarget.textContent = '已保存';
       event.currentTarget.disabled = true;
-      showToast(saved ? '方案已保存至“我的方案”' : '该方案已在“我的方案”中');
+      showToast('方案已保存。');
     });
   }
 }
 
 function generateShareCode(recipe) {
+  if (!state.networkAvailable || navigator.onLine === false) {
+    showToast('网络不可用，请检查网络连接。');
+    return;
+  }
   recipe.shareCode = generateUniqueShareCode(recipe);
   recipe.saved = true;
-  saveRecipeToLibrary(recipe);
+  const result = saveRecipeToLibrary(recipe);
+  state.cloudRecipes[recipe.shareCode] = cloudSnapshot(recipe);
   saveRecipes();
   openShareCode(recipe);
-  showToast('分享码已生成');
+  showToast(result.limit ? '分享码已生成，方案未保存至我的方案。' : '分享码已生成');
 }
 
 function openShareCode(recipe) {
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">分享方案</div><h2 class="modal-title">分享码已生成</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><div><h2 class="modal-title">分享码已生成</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
       <div class="generated-code">${escapeHtml(formatShareCode(recipe.shareCode))}</div>
       <div class="code-copy-note">将分享码发送给好友，对方可在“导入分享方案”中查看并应用方案。</div>
@@ -600,7 +895,7 @@ function openShareCode(recipe) {
 
 function openDeleteConfirm(recipe) {
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">删除方案</div><h2 class="modal-title">确认删除方案？</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><div><h2 class="modal-title">确认删除方案？</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
       <div class="confirm-icon delete-confirm-icon">!</div>
       <h3 class="confirm-title">删除“${escapeHtml(recipe.name)}”</h3>
@@ -608,6 +903,15 @@ function openDeleteConfirm(recipe) {
     </div>
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close data-autofocus data-focus-key="delete-cancel">取消</button><button class="danger-btn focusable" type="button" id="confirm-delete" data-focus-key="confirm-delete">确认删除</button></div>`);
   modalRoot.querySelector('#confirm-delete').addEventListener('click', () => {
+    removeCloudShare(recipe);
+    const appliedContext = findAppliedContextForRecipe(recipe);
+    if (appliedContext) {
+      const { key, record } = appliedContext;
+      if (record.previous) state.appliedContexts[key] = record.previous;
+      else delete state.appliedContexts[key];
+      const previous = findRecipeByReference(record.previous);
+      setRecipeCurrent(previous, Boolean(record.previous));
+    }
     state.recipes = state.recipes.filter((item) => item.id !== recipe.id);
     state.selectedRecipe = null;
     saveRecipes();
@@ -618,31 +922,141 @@ function openDeleteConfirm(recipe) {
   });
 }
 
+function isCurrentRecipeSame(recipe) {
+  const currentRecord = appliedRecordForContext(contextKey(state.signal, state.mode));
+  return sameRecipeReference(recipe, currentRecord);
+}
+
+function applyRecipeToDevice(recipe) {
+  if (recipe.applyAvailable === false) return { ok: false };
+
+  const targetSignal = state.signal;
+  const targetMode = state.mode;
+  const key = contextKey(targetSignal, targetMode);
+  const previous = appliedRecordForContext(key);
+  const recipeCode = normalizeShareCode(recipe.shareCode);
+  let target = recipe.id && state.recipes.find((item) => item.id === recipe.id);
+  if (!target && recipeCode) target = state.recipes.find((item) => normalizeShareCode(item.shareCode) === recipeCode);
+  if (!target) {
+    target = {
+      id: `import-${Date.now()}`,
+      ...recipe,
+      source: '分享导入',
+      visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
+    };
+    state.recipes.unshift(target);
+  }
+
+  const previousRecipe = findRecipeByReference(previous);
+  setRecipeCurrent(previousRecipe, false);
+  setRecipeCurrent(target, true);
+  state.appliedContexts[key] = recipeReference(target, previous);
+  saveRecipes();
+  return { ok: true, target, key };
+}
+
+function finishApplySuccess(result) {
+  closeLoadingModal();
+  state.page = 'library';
+  state.selectedRecipe = result.target;
+  state.focusKey = 'detail-apply';
+  document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === 'library'));
+  const config = pageConfig.library;
+  eyebrow.textContent = config.eyebrow;
+  pageTitle.textContent = config.title;
+  pageSubtitle.textContent = config.subtitle;
+  render();
+  showToast('方案已应用。');
+}
+
+function saveImportedAfterApplyFailure(recipe) {
+  const result = saveRecipeToLibrary(recipe, '分享导入');
+  if (!result.limit) recipe.saved = true;
+  return result;
+}
+
+function finishApplyFailure(recipe, fromDetail) {
+  const saved = saveImportedAfterApplyFailure(recipe);
+  closeLoadingModal();
+  if (saved.limit) {
+    showToast('方案数量已达上限，请删除部分方案后重试。');
+    return;
+  }
+
+  if (fromDetail) {
+    state.selectedRecipe = saved.recipe || recipe;
+    state.focusKey = 'detail-apply';
+    renderRecipeDetail();
+  } else {
+    openParameterPreview('import', { ...recipe, saved: true, source: '分享导入' });
+  }
+  showToast('应用失败，已将方案保存至我的方案中，请稍后重试。');
+}
+
 function openApplyConfirm(recipe) {
+  const context = currentContext();
   openModal(`
-    <div class="modal-head"><div><div class="modal-tag">应用方案</div><h2 class="modal-title">应用画质方案</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><h2 class="modal-title">应用到当前 ${escapeHtml(context)}？</h2><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
       <div class="confirm-icon">!</div>
-      <h3 class="confirm-title">应用到当前 ${escapeHtml(currentContext())}？</h3>
-      <p class="confirm-copy">“${escapeHtml(recipe.name)}”将修改当前图效下的画质参数。应用后可在“我的方案”中恢复本次应用前的设置。</p>
-      <div class="backup-note"><b>自动备份</b>　系统将先备份当前 ${escapeHtml(currentContext())} 的参数，再应用此方案。</div>
+      <p class="confirm-copy">“${escapeHtml(recipe.name)}”将修改当前 <strong>${escapeHtml(context)}</strong> 下的画质参数。如需恢复，可在「图像设置」菜单点击「重置当前图效」，恢复该信号图效下的默认值。</p>
+      <div class="coverage-note"><b>参数覆盖</b>　应用后将覆盖当前 <strong>${escapeHtml(context)}</strong> 下的画质参数。</div>
     </div>
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="confirm-apply">确认应用</button></div>`);
-  modalRoot.querySelector('#confirm-apply').addEventListener('click', () => {
-    const backup = { id: `backup-${Date.now()}`, name: `${state.signal} ${state.mode}应用前备份`, signal: state.signal, mode: state.mode, source: '自动备份', created: '刚刚', visual: state.signal === 'HDR' ? 'hdr' : state.signal === 'SDR' ? 'cinema' : 'dv', current: false };
-    state.recipes.forEach((item) => { item.current = false; });
-    let target = state.recipes.find((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode);
-    if (!target) { target = { id: `import-${Date.now()}`, ...recipe, source: '导入方案', visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv' }; state.recipes.unshift(target); }
-    target.current = true;
-    state.recipes.unshift(backup);
+  modalRoot.querySelector('#confirm-apply').addEventListener('click', async () => {
+    if (state.busy) return;
+    if (isCurrentRecipeSame(recipe)) {
+      closeModal();
+      showToast('当前已应用该方案，无需重复应用。');
+      return;
+    }
+
+    const fromDetail = Boolean(state.selectedRecipe);
+    closeModal({ restore: false });
+    state.busy = true;
+    openLoadingModal('应用中', '正在应用画质参数，请稍候');
+    try {
+      await wait(650);
+      const result = applyRecipeToDevice(recipe);
+      if (result.ok) finishApplySuccess(result);
+      else finishApplyFailure(recipe, fromDetail);
+    } catch (error) {
+      finishApplyFailure(recipe, fromDetail);
+    }
+  });
+}
+
+function openCancelApplyConfirm(recipe) {
+  openModal(`
+    <div class="modal-head"><h2 class="modal-title">取消应用？</h2><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <div class="confirm-icon">!</div>
+      <p class="confirm-copy">取消应用后，将恢复应用该方案前的画质设置。是否继续？</p>
+    </div>
+    <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="danger-btn focusable" type="button" id="confirm-cancel-apply">确认取消</button></div>`);
+  modalRoot.querySelector('#confirm-cancel-apply').addEventListener('click', () => {
+    if (state.busy) return;
+    const key = contextKey(state.signal, state.mode);
+    const record = appliedRecordForContext(key);
+    if (!sameRecipeReference(recipe, record)) {
+      closeModal();
+      showToast('操作失败，请稍后重试。');
+      return;
+    }
+
+    const previous = record.previous;
+    const previousRecipe = findRecipeByReference(previous);
+    const currentRecipe = findRecipeByReference(record);
+    setRecipeCurrent(currentRecipe, false);
+    setRecipeCurrent(previousRecipe, Boolean(previous));
+    if (previous) state.appliedContexts[key] = previous;
+    else delete state.appliedContexts[key];
     saveRecipes();
-    closeModal();
-    state.page = 'library';
-    state.selectedRecipe = target;
-    document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === 'library'));
-    const config = pageConfig.library; eyebrow.textContent = config.eyebrow; pageTitle.textContent = config.title; pageSubtitle.textContent = config.subtitle;
-    render();
-    showToast('方案已应用，已自动创建应用前备份');
+    closeModal({ restore: false });
+    state.selectedRecipe = currentRecipe || recipe;
+    state.focusKey = 'detail-apply';
+    renderRecipeDetail();
+    showToast('已取消应用。');
   });
 }
 
@@ -653,9 +1067,22 @@ function showToast(message) {
 }
 
 document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => setPage(button.dataset.page)));
+networkControl.addEventListener('click', toggleNetworkSimulation);
+renderNetworkControl();
 window.addEventListener('resize', updateDisplayScale);
-document.addEventListener('focusin', (event) => rememberFocus(event.target));
+document.addEventListener('focusin', (event) => {
+  rememberFocus(event.target);
+  const detail = event.target.closest('.library-detail');
+  if (!detail) return;
+  const rightFocused = Boolean(event.target.closest('#detail-parameters'));
+  detail.classList.toggle('detail-focus-right', rightFocused);
+  detail.classList.toggle('detail-focus-left', !rightFocused && Boolean(event.target.closest('.detail-summary')));
+});
 document.addEventListener('keydown', (event) => {
+  if (state.busy) {
+    event.preventDefault();
+    return;
+  }
   const backKeys = ['Escape', 'Backspace', 'BrowserBack', 'GoBack', 'Back', 'MediaBack'];
   if (backKeys.includes(event.key) && !(event.target instanceof HTMLInputElement && event.key === 'Backspace')) {
     event.preventDefault();
@@ -681,9 +1108,18 @@ document.addEventListener('keydown', (event) => {
   }
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
   if (document.activeElement?.matches('input')) return;
+  if (handleDetailArrowKey(event.key)) {
+    event.preventDefault();
+    return;
+  }
   event.preventDefault();
   focusInDirection(event.key.slice(5).toLowerCase());
 });
 
+removeLegacyAutoBackups();
+normalizeImportedRecipeSources();
+migrateCurrentRecipe();
+ensureImportedShareCodes();
+ensureCloudShareSnapshots();
 updateDisplayScale();
 setSecurityHome();
