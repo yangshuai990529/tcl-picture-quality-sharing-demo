@@ -1,0 +1,648 @@
+const app = document.querySelector('#app');
+const securityHomeRoot = document.querySelector('#security-home-root');
+const managementRoot = document.querySelector('#management-root');
+const tvStage = document.querySelector('#tv-stage');
+const modalRoot = document.querySelector('#modal-root');
+const toastRoot = document.querySelector('#toast-root');
+const pageTitle = document.querySelector('#page-title');
+const pageSubtitle = document.querySelector('#page-subtitle');
+const eyebrow = document.querySelector('#eyebrow');
+
+const data = await fetch('./data/quality-menu-parameters.json').then((response) => response.json());
+const parameters = data.items;
+
+const state = {
+  page: 'home',
+  signal: 'HDR',
+  mode: '影院',
+  draftName: '我的夜间影院',
+  importedCode: '',
+  libraryTab: '全部',
+  selectedRecipe: null,
+  focusKey: null,
+  previousFocusElement: null,
+  previousFocusKey: null,
+  recipes: JSON.parse(localStorage.getItem('tcl-picture-recipes') || 'null') || [
+    { id: 'r1', name: '主机游戏 HDR', signal: 'HDR', mode: '游戏', source: '我创建的', created: '今天 14:25', visual: 'hdr', current: true },
+    { id: 'r2', name: '周末影院', signal: 'SDR', mode: '电影/图片', source: '我创建的', created: '昨天 21:16', visual: 'cinema' },
+    { id: 'r3', name: '杜比视界柔和', signal: 'Dolby Vision', mode: '柔和', source: '导入方案', created: '2026.08.21', visual: 'dv' },
+  ],
+};
+
+const pageConfig = {
+  share: { eyebrow: '分享参数', title: '分享画质参数', subtitle: '请选择需要分享的信号类型及图效' },
+  import: { eyebrow: '导入方案', title: '导入画质方案', subtitle: '输入分享码，查看并应用他人分享的画质方案' },
+  library: { eyebrow: '我的方案', title: '我的方案', subtitle: '查看、应用或管理已保存的画质方案' },
+};
+
+
+// 当前用户的画质方案值：Demo 中以本地 Mock 数据模拟，菜单名称对应用户提供的画质菜单树。
+const previewGroups = [
+  {
+    title: '图效模式', items: [
+      ['图效', 'TSR计算画质'],
+    ]
+  },
+  {
+    title: '亮度', items: [
+      ['亮度', '25'], ['对比度', '48'], ['伽马', '2.4'], ['自动HDR转换', '关'], ['HDR动态色调映射', '开'], ['黑电平', '47'],
+      ['黑电平延伸', '低'], ['动态对比度', '关'], ['区域背光', '高'], ['峰值亮度', '中'], ['自然光', '关闭'], ['智能局域控光', '开'],
+    ]
+  },
+  {
+    title: '色彩', items: [
+      ['饱和度', '52'], ['色调', '52'], ['色温', '防蓝光护眼'], ['环境色温感应', '关'], ['色彩增强', '低'], ['白平衡', '默认'],
+      ['2点', '轻微暖调'], ['红色增益', '0'], ['绿色增益', '0'], ['蓝色增益', '0'], ['红色偏差', '0'], ['绿色偏差', '0'],
+      ['蓝色偏差', '0'], ['重置2点白平衡', '未操作'], ['20点', '未调整'], ['分段', '1段'], ['红色', '0'], ['绿色', '0'],
+      ['蓝色', '0'], ['重置20点白平衡', '未操作'], ['色彩空间', '自动'], ['颜色', '红色'], ['红', '50'], ['绿', '50'], ['蓝', '50'], ['重置色彩空间', '未操作'],
+    ]
+  },
+  {
+    title: '运动', items: [
+      ['运动补偿', '24P原彩电影'], ['运动平滑', '0'], ['运动清晰', '0'], ['120/240Hz动态加速', '关'], ['LED运动清晰', '关'], ['24p原帧电影', '开'],
+    ]
+  },
+  {
+    title: '清晰度', items: [
+      ['锐利度', '50'], ['水印平滑', '关'], ['MPEG降噪', '关'], ['降噪', '自动'], ['超清分辨率', '开'], ['精准细节', '开'],
+    ]
+  },
+  {
+    title: '高级设置', items: [
+      ['信号范围', '自动'], ['显示标准', 'HDR视频'], ['片源色域', 'BT.2020'], ['片源白点', 'D65'], ['片源OETF', 'ST.2084'],
+    ]
+  },
+  {
+    title: '内容自动识别', items: [
+      ['内容自动识别', '开'],
+    ]
+  },
+  {
+    title: '健康护眼', items: [
+      ['背光调节', '混合调光'], ['环境亮度感应', '开'], ['环境色温感应', '关'], ['色彩观感还原', '开'], ['低蓝光模式', '开'],
+    ]
+  },
+  {
+    title: '屏幕设置', items: [
+      ['图像比例', '自动'], ['视野', '常规'],
+    ]
+  },
+];
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function saveRecipes() {
+  localStorage.setItem('tcl-picture-recipes', JSON.stringify(state.recipes));
+}
+
+
+function saveRecipeToLibrary(recipe, source = '我创建的') {
+  const exists = state.recipes.some((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode && item.source !== '自动备份');
+  if (exists) return false;
+  state.recipes.unshift({
+    id: `r-${Date.now()}`,
+    ...recipe,
+    source,
+    visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
+    current: false,
+  });
+  saveRecipes();
+  return true;
+}
+
+
+function focusKeyFor(element) {
+  if (!element) return '';
+  return element.dataset.focusKey || element.id || element.dataset.page || element.dataset.recipe || element.dataset.libraryTab || '';
+}
+
+function visibleFocusables(scope = document) {
+  return [...scope.querySelectorAll('button:not([disabled]), input:not([disabled])')]
+    .filter((element) => element.offsetParent !== null && !element.closest('[hidden]'));
+}
+
+function rememberFocus(element = document.activeElement) {
+  const key = focusKeyFor(element);
+  if (key) state.focusKey = key;
+  return key;
+}
+
+function restoreFocus(scope = document, fallbackKey = state.focusKey) {
+  const focusables = visibleFocusables(scope);
+  if (!focusables.length) return;
+  const target = focusables.find((element) => focusKeyFor(element) === fallbackKey) || focusables[0];
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  rememberFocus(target);
+}
+
+function focusInDirection(direction) {
+  const scope = modalRoot.innerHTML ? modalRoot : state.page === 'home' ? securityHomeRoot : managementRoot;
+  const focusables = visibleFocusables(scope);
+  if (!focusables.length) return;
+  const current = focusables.includes(document.activeElement) ? document.activeElement : null;
+  if (!current) {
+    restoreFocus(scope);
+    return;
+  }
+  const currentRect = current.getBoundingClientRect();
+  const currentX = currentRect.left + currentRect.width / 2;
+  const currentY = currentRect.top + currentRect.height / 2;
+  const horizontal = direction === 'left' || direction === 'right';
+  const sign = direction === 'right' || direction === 'down' ? 1 : -1;
+  const candidates = focusables
+    .filter((element) => element !== current)
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const primary = horizontal ? (x - currentX) * sign : (y - currentY) * sign;
+      const cross = horizontal ? Math.abs(y - currentY) : Math.abs(x - currentX);
+      const overlap = horizontal
+        ? rect.bottom >= currentRect.top && rect.top <= currentRect.bottom
+        : rect.right >= currentRect.left && rect.left <= currentRect.right;
+      return { element, primary, cross, overlap, distance: Math.hypot(x - currentX, y - currentY) };
+    })
+    .filter((candidate) => candidate.primary > 2)
+    .sort((a, b) => {
+      if (a.overlap !== b.overlap) return a.overlap ? -1 : 1;
+      const scoreA = a.primary + a.cross * 1.8 + a.distance * .08;
+      const scoreB = b.primary + b.cross * 1.8 + b.distance * .08;
+      return scoreA - scoreB;
+    });
+  const next = candidates[0]?.element;
+  if (next) {
+    next.focus({ preventScroll: true });
+    next.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    rememberFocus(next);
+  }
+}
+
+function handleBack() {
+  if (modalRoot.innerHTML) {
+    closeModal();
+    return;
+  }
+  if (state.page === 'home') return;
+  if (state.page === 'library' && state.selectedRecipe) {
+    const recipeKey = `recipe-${state.selectedRecipe.id}`;
+    state.selectedRecipe = null;
+    state.focusKey = recipeKey;
+    renderLibrary();
+    return;
+  }
+  setSecurityHome();
+}
+
+
+// 电视端以 1920 × 1080 作为大屏设计基准：超过该尺寸时等比放大整套界面，避免 4K / 超宽屏出现内容过小和右侧大面积留白。
+function updateDisplayScale() {
+  const designWidth = 1920;
+  const designHeight = 1080;
+  const useCanvasScale = window.innerWidth > 2100 && window.innerHeight > 1000;
+  document.body.classList.toggle('tv-canvas-active', useCanvasScale);
+  if (!useCanvasScale) {
+    tvStage.style.removeProperty('--tv-scale');
+    return;
+  }
+  const scale = Math.min(window.innerWidth / designWidth, window.innerHeight / designHeight);
+  tvStage.style.setProperty('--tv-scale', String(scale));
+}
+
+function setPage(page) {
+  const fromHome = state.page === 'home';
+  state.page = page;
+  state.selectedRecipe = null;
+  if (fromHome) {
+    state.focusKey = page === 'share'
+      ? `signal-${state.signal}`
+      : page === 'import'
+        ? 'import-code'
+        : 'library-tab-全部';
+  }
+  securityHomeRoot.hidden = true;
+  managementRoot.hidden = false;
+  document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
+  const config = pageConfig[page];
+  eyebrow.textContent = config.eyebrow;
+  pageTitle.textContent = config.title;
+  pageSubtitle.textContent = config.subtitle;
+  render();
+  restoreFocus(managementRoot);
+}
+
+function setSecurityHome() {
+  closeModal();
+  state.page = 'home';
+  state.focusKey = 'home-entry-备份与恢复';
+  securityHomeRoot.hidden = false;
+  managementRoot.hidden = true;
+  renderSecurityHome();
+}
+
+function renderSecurityHome() {
+  const entries = [
+    { icon: '✦', label: '深度清理', kind: 'utility' },
+    { icon: '▦', label: '应用管理', kind: 'utility' },
+    { icon: '♙', label: '权限管理', kind: 'utility' },
+    { icon: '⌁', label: '电视诊断', kind: 'utility' },
+    { icon: '▣', label: '备份与恢复', kind: 'quality', featured: true },
+    { icon: '⌘', label: '画质方案管理', kind: 'quality' },
+    { icon: '⚙', label: '更多设置', kind: 'utility' },
+  ];
+  securityHomeRoot.innerHTML = `
+    <div class="security-home-inner">
+      <header class="security-header"><h1>安全卫士</h1></header>
+      <section class="security-overview" aria-label="设备状态">
+        <div class="security-stat memory"><div class="stat-ring"><strong>58<small>%</small></strong><span>占用内存</span></div></div>
+        <div class="security-stat junk"><div class="stat-ring"><strong>144<small>MB</small></strong><span>系统垃圾</span></div></div>
+        <div class="security-stat apps"><div class="stat-ring"><strong>39<small>个</small></strong><span>运行程序</span></div></div>
+      </section>
+      <button class="optimize-btn focusable" type="button" id="optimize-btn" data-focus-key="home-optimize">一键优化</button>
+      <nav class="security-entry-grid" aria-label="安全卫士功能入口">
+        ${entries.map((entry) => `<button class="security-entry focusable ${entry.featured ? 'featured' : ''}" type="button" data-home-entry="${entry.kind}" data-focus-key="home-entry-${escapeHtml(entry.label)}"><span class="entry-icon">${entry.icon}</span><span>${entry.label}</span></button>`).join('')}
+      </nav>
+    </div>`;
+  securityHomeRoot.querySelectorAll('[data-home-entry="quality"]').forEach((button) => button.addEventListener('click', () => setPage('share')));
+  securityHomeRoot.querySelectorAll('[data-home-entry="utility"]').forEach((button) => button.addEventListener('click', () => showToast('该功能为安全卫士的其他入口，本 Demo 暂未配置。')));
+  securityHomeRoot.querySelector('#optimize-btn').addEventListener('click', () => showToast('优化完成：已清理 144 MB 系统垃圾'));
+  restoreFocus(securityHomeRoot);
+}
+
+function currentContext() {
+  return `${state.signal}${state.signal === 'HDR' ? '10' : ''} · ${state.mode}模式`;
+}
+
+function render() {
+  if (state.page === 'share') renderShare();
+  if (state.page === 'import') renderImport();
+  if (state.page === 'library') renderLibrary();
+}
+
+function renderShare() {
+  const signals = ['SDR', 'HDR', 'Dolby Vision'];
+  const modeMap = {
+    SDR: ['标准', '电影/图片', '游戏', 'HDR增强'],
+    HDR: ['标准', '影院', '游戏', '专家'],
+    'Dolby Vision': ['杜比视界明亮', '柔和', '游戏', 'IQ'],
+  };
+  const modes = modeMap[state.signal];
+  if (!modes.includes(state.mode)) state.mode = modes[0];
+
+  app.innerHTML = `
+    <div class="share-layout">
+      <div class="form-stage">
+        <div class="section-lead"><h2>选择画质环境</h2><p>方案将保存当前所选信号类型和图效下的画质菜单参数。</p></div>
+        <div class="choice-block">
+          <div class="choice-label">信号类型</div>
+          <div class="choice-grid">
+            ${signals.map((signal) => `<button class="choice focusable ${signal === state.signal ? 'selected' : ''}" type="button" data-signal="${signal}" data-focus-key="signal-${signal}"><span class="choice-value">${signal}</span></button>`).join('')}
+          </div>
+        </div>
+        <div class="choice-block">
+          <div class="choice-label">图效</div>
+          <div class="choice-grid mode-grid">
+            ${modes.map((mode) => `<button class="choice focusable ${mode === state.mode ? 'selected' : ''}" type="button" data-mode="${mode}" data-focus-key="mode-${mode}"><span class="choice-value">${mode}</span></button>`).join('')}
+          </div>
+        </div>
+        <div class="share-actions"><button class="primary-btn focusable" id="share-start" data-focus-key="share-start" type="button">去分享</button></div>
+      </div>
+      <aside class="context-card" aria-label="当前待分享画质环境">
+        <div class="context-overline">当前画质</div>
+        <h3>${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</h3>
+        <p>当前画质参数将生成分享方案，同一信号类型下均可使用。接收方导入后可查看参数并确认应用。</p>
+        <div class="context-meta">
+          <div><span>当前设备</span><b>TCL C11K MiniLED</b></div>
+          <div><span>参数来源</span><b>${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</b></div>
+        </div>
+        <div class="context-footer">已读取 ${parameters.length} 条画质菜单项</div>
+      </aside>
+    </div>`;
+
+  app.querySelectorAll('[data-signal]').forEach((button) => button.addEventListener('click', () => { state.signal = button.dataset.signal; renderShare(); }));
+  app.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => { state.mode = button.dataset.mode; renderShare(); }));
+  app.querySelector('#share-start').addEventListener('click', openNameModal);
+  restoreFocus(app);
+}
+
+function renderImport() {
+  app.innerHTML = `
+    <div class="import-layout">
+      <section class="import-card">
+        <h2>导入画质方案</h2>
+        <p>输入他人分享的方案码。导入后可预览完整参数，并确认是否应用到当前图效。</p>
+        <input id="share-code" data-focus-key="import-code" class="code-input focusable" maxlength="18" value="${escapeHtml(state.importedCode)}" placeholder="PQ-TCL-XXXXXXXX" aria-label="画质方案分享码" />
+        <div class="import-actions"><button class="primary-btn focusable" id="import-submit" data-focus-key="import-submit" type="button">导入方案</button></div>
+        <div class="code-examples"><span>演示分享码：</span><button type="button" class="code-example focusable" data-focus-key="import-example" data-code="PQ-TCL-2FRZP417">PQ-TCL-2FRZP417</button></div>
+        <div class="import-note"><strong>提示</strong><span>应用方案前，系统会自动备份当前 ${escapeHtml(currentContext())} 的画质参数。</span></div>
+      </section>
+    </div>`;
+  const input = app.querySelector('#share-code');
+  app.querySelector('.code-example').addEventListener('click', () => { input.value = 'PQ-TCL-2FRZP417'; input.focus(); });
+  app.querySelector('#import-submit').addEventListener('click', () => {
+    state.importedCode = input.value.trim().toUpperCase();
+    if (state.importedCode === 'PQ-TCL-2FRZP417') openParameterPreview('import', { name: '主机游戏 HDR', signal: 'HDR', mode: '游戏', created: '2026.08.24' });
+    else showToast('请输入演示分享码 PQ-TCL-2FRZP417');
+  });
+  restoreFocus(app);
+}
+
+function renderLibrary() {
+  if (state.selectedRecipe) return renderRecipeDetail();
+  const available = state.libraryTab === '全部' ? state.recipes : state.recipes.filter((recipe) => recipe.signal === state.libraryTab);
+  app.innerHTML = `
+    <div class="library-page">
+      <div class="library-head">
+        <div class="library-tabs">
+          ${['全部', 'SDR', 'HDR', 'Dolby Vision'].map((tab) => `<button class="mini-tab focusable ${tab === state.libraryTab ? 'active' : ''}" type="button" data-library-tab="${tab}" data-focus-key="library-tab-${tab}">${tab}</button>`).join('')}
+        </div>
+      </div>
+      <div class="recipe-grid">
+        ${available.map((recipe) => recipeCard(recipe)).join('')}
+      </div>
+    </div>`;
+  app.querySelectorAll('[data-library-tab]').forEach((button) => button.addEventListener('click', () => { state.libraryTab = button.dataset.libraryTab; renderLibrary(); }));
+  app.querySelectorAll('[data-recipe]').forEach((button) => button.addEventListener('click', () => { state.selectedRecipe = state.recipes.find((recipe) => recipe.id === button.dataset.recipe); state.focusKey = 'detail-apply'; renderLibrary(); }));
+  restoreFocus(app);
+}
+
+function recipeCard(recipe) {
+  return `<button class="recipe-card focusable" type="button" data-recipe="${recipe.id}" data-focus-key="recipe-${recipe.id}" aria-label="查看方案 ${escapeHtml(recipe.name)}">
+    <span class="recipe-visual ${recipe.visual || 'cinema'}"></span>
+    <span class="recipe-tag">${escapeHtml(recipe.signal)}</span>
+    <span class="recipe-meta ${recipe.current ? 'current' : ''}">${recipe.current ? '当前使用' : escapeHtml(recipe.source)}</span>
+    <h3>${escapeHtml(recipe.name)}</h3>
+    <p>${escapeHtml(recipe.mode)} · ${escapeHtml(recipe.created)}</p>
+  </button>`;
+}
+
+function renderRecipeDetail() {
+  const recipe = state.selectedRecipe;
+  app.innerHTML = `
+    <div class="library-detail">
+      <aside class="detail-summary">
+        <button class="detail-back focusable" type="button" id="detail-back" data-focus-key="detail-back">‹ 返回我的方案</button>
+        <h2>${escapeHtml(recipe.name)}</h2>
+        <p>本方案包含当前图像设置菜单中的画质参数定义，可再次分享或应用到匹配的图效环境。</p>
+        <div class="detail-facts">
+          <div><span>信号类型</span><b>${escapeHtml(recipe.signal)}</b></div>
+          <div><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
+          <div><span>方案来源</span><b>${escapeHtml(recipe.source)}</b></div>
+          <div><span>保存时间</span><b>${escapeHtml(recipe.created)}</b></div>
+        </div>
+        <div class="detail-buttons">
+          <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">应用方案</button>
+          <button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>
+          <button class="danger-btn focusable" type="button" id="detail-delete" data-focus-key="detail-delete">删除方案</button>
+        </div>
+      </aside>
+      <section class="table-section detail-parameter-section">
+        <div class="preview-intro"><div><div class="choice-label">画质设置参数</div><p>仅显示设置项名称及当前方案值。</p></div><div class="group-count">${previewGroups.length} 个分组</div></div>
+        ${parameterGroups()}
+      </section>
+    </div>`;
+  app.querySelector('#detail-back').addEventListener('click', () => { state.selectedRecipe = null; renderLibrary(); });
+  app.querySelector('#detail-share').addEventListener('click', () => generateSharePoster(recipe));
+  app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
+  app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
+  restoreFocus(app);
+}
+
+function parameterGroups() {
+  return `<div class="parameter-groups">${previewGroups.map((group) => `
+    <section class="parameter-group">
+      <div class="group-heading">
+        <div><h3>${escapeHtml(group.title)}</h3></div>
+        <span>${group.items.length} 项</span>
+      </div>
+      <div class="value-grid">
+        ${group.items.map(([name, value]) => `<div class="value-chip"><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b></div>`).join('')}
+      </div>
+    </section>`).join('')}</div>`;
+}
+
+function previewFacts(recipe, type) {
+  const status = type === 'share' ? recipe.shareCode ? '已生成' : '待生成' : recipe.current ? '当前使用' : '尚未应用';
+  const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
+  return `<div class="preview-facts">
+    <div class="preview-fact"><span>方案名称</span><b>${escapeHtml(recipe.name)}</b></div>
+    <div class="preview-fact"><span>信号</span><b>${escapeHtml(signal)}</b></div>
+    <div class="preview-fact"><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
+    <div class="preview-fact"><span>状态</span><b id="preview-status">${escapeHtml(status)}</b></div>
+  </div>`;
+}
+
+function openModal(content, wide = false, variant = '') {
+  if (!modalRoot.innerHTML) {
+    state.previousFocusElement = document.activeElement;
+    state.previousFocusKey = state.focusKey;
+  }
+  modalRoot.innerHTML = `<div class="modal-backdrop"><section class="modal ${wide ? 'wide' : ''} ${variant}" role="dialog" aria-modal="true">${content}</section></div>`;
+  modalRoot.querySelectorAll('.focusable').forEach((element, index) => {
+    if (!element.dataset.focusKey) element.dataset.focusKey = element.id || `modal-control-${index}`;
+  });
+  const backdrop = modalRoot.querySelector('.modal-backdrop');
+  backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeModal(); });
+  modalRoot.querySelectorAll('[data-modal-close]').forEach((button) => button.addEventListener('click', closeModal));
+  const first = modalRoot.querySelector('[data-autofocus], input, button');
+  if (first) setTimeout(() => { first.focus(); rememberFocus(first); }, 0);
+}
+
+function closeModal({ restore = true } = {}) {
+  modalRoot.innerHTML = '';
+  if (!restore) return;
+  const previous = state.previousFocusElement;
+  const previousKey = state.previousFocusKey;
+  state.previousFocusElement = null;
+  state.previousFocusKey = null;
+  state.focusKey = previousKey || state.focusKey;
+  if (previous?.isConnected && previous.offsetParent !== null) {
+    previous.focus({ preventScroll: true });
+    rememberFocus(previous);
+  } else {
+    restoreFocus(state.page === 'home' ? securityHomeRoot : managementRoot);
+  }
+}
+
+function openNameModal() {
+  openModal(`
+    <div class="modal-head"><div><div class="modal-tag">分享参数</div><h2 class="modal-title">分享画质参数</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <label class="name-label" for="recipe-name">方案名称</label>
+      <input id="recipe-name" class="name-input focusable" value="${escapeHtml(state.draftName)}" maxlength="20" />
+      <div class="modal-context">
+        <div class="context-pill"><span>当前设备</span><b>TCL C11K MiniLED</b></div>
+        <div class="context-pill"><span>分享环境</span><b>${escapeHtml(currentContext())}</b></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="name-next">下一步</button></div>`);
+  modalRoot.querySelector('#name-next').addEventListener('click', () => {
+    state.draftName = modalRoot.querySelector('#recipe-name').value.trim() || '未命名画质方案';
+    openParameterPreview('share', { name: state.draftName, signal: state.signal, mode: state.mode, created: '刚刚' });
+  });
+}
+
+function openParameterPreview(type, recipe) {
+  const isShare = type === 'share';
+  openModal(`
+    <div class="modal-head"><div><div class="modal-tag">${isShare ? '分享参数' : '导入方案'}</div><h2 class="modal-title">${isShare ? '分享参数预览' : '导入方案预览'}</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      ${previewFacts(recipe, type)}
+      <section class="settings-preview">
+        <div class="settings-preview-head"><span class="group-count">${previewGroups.length} 个分组</span></div>
+        ${parameterGroups()}
+      </section>
+    </div>
+    <div class="modal-foot">
+      <button class="secondary-btn focusable" type="button" data-modal-close data-focus-key="preview-back">返回</button>
+      ${isShare ? `<button class="secondary-btn focusable" type="button" id="save-preview" data-focus-key="save-preview" ${recipe.saved ? 'disabled' : ''}>${recipe.saved ? '已保存至我的方案' : '保存至我的方案'}</button>` : ''}
+      <button class="primary-btn focusable" type="button" id="preview-action" data-focus-key="preview-action" data-autofocus>${isShare ? (recipe.shareCode ? '重新生成分享码' : '生成分享码') : '应用方案'}</button>
+    </div>`, true);
+  modalRoot.querySelector('#preview-action').addEventListener('click', () => isShare ? generateSharePoster(recipe) : openApplyConfirm(recipe));
+  if (isShare) {
+    modalRoot.querySelector('#save-preview').addEventListener('click', (event) => {
+      const saved = saveRecipeToLibrary(recipe);
+      recipe.saved = true;
+      event.currentTarget.textContent = '已保存至我的方案';
+      event.currentTarget.disabled = true;
+      showToast(saved ? '方案已保存至“我的方案”' : '该方案已在“我的方案”中');
+    });
+  }
+}
+
+function generateSharePoster(recipe) {
+  recipe.shareCode = recipeCode(recipe);
+  recipe.saved = true;
+  saveRecipeToLibrary(recipe);
+  saveRecipes();
+  openSharePoster(recipe);
+  showToast('分享海报已生成');
+}
+
+function openSharePoster(recipe) {
+  const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
+  openModal(`
+    <div class="modal-head"><div><div class="modal-tag">分享海报</div><h2 class="modal-title">画质方案分享海报</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body poster-modal-body">
+      <article class="share-poster" aria-label="画质方案分享海报">
+        <div class="share-poster-art"><img src="./assets/share-poster-visual.svg" alt="电影感山景" /></div>
+        <div class="share-poster-content">
+          <div class="poster-brand">TCL 画质方案</div>
+          <div class="poster-copy">把这一刻的画质<br />分享给懂的人</div>
+          <div class="poster-rule"></div>
+          <div class="poster-name">${escapeHtml(recipe.name)}</div>
+          <div class="poster-meta"><span>${escapeHtml(signal)}</span><i></i><span>${escapeHtml(recipe.mode)}</span></div>
+          <div class="poster-code-block"><span>方案分享码</span><b>${escapeHtml(recipe.shareCode)}</b></div>
+          <div class="poster-note">接收方在“导入分享码”中输入此码，即可预览并应用方案。</div>
+        </div>
+      </article>
+    </div>
+    <div class="modal-foot"><button class="secondary-btn focusable" type="button" id="poster-back" data-focus-key="poster-back">返回参数预览</button><button class="primary-btn focusable" type="button" id="poster-done" data-focus-key="poster-done" data-autofocus>完成</button></div>`, true, 'poster-modal');
+  modalRoot.querySelector('#poster-back').addEventListener('click', () => {
+    state.focusKey = 'preview-action';
+    openParameterPreview('share', recipe);
+  });
+  modalRoot.querySelector('#poster-done').addEventListener('click', closeModal);
+}
+
+function recipeCode(recipe) {
+  const signal = recipe.signal === 'HDR' ? '2FRZP417' : recipe.signal === 'SDR' ? 'A92BF' : 'DV8Q7L';
+  return `PQ-TCL-${signal}`;
+}
+
+function openDeleteConfirm(recipe) {
+  openModal(`
+    <div class="modal-head"><div><div class="modal-tag">删除方案</div><h2 class="modal-title">确认删除方案？</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <div class="confirm-icon delete-confirm-icon">!</div>
+      <h3 class="confirm-title">删除“${escapeHtml(recipe.name)}”</h3>
+      <p class="confirm-copy">删除后，该方案将从“我的方案”中移除，且无法恢复。</p>
+    </div>
+    <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close data-autofocus data-focus-key="delete-cancel">取消</button><button class="danger-btn focusable" type="button" id="confirm-delete" data-focus-key="confirm-delete">确认删除</button></div>`);
+  modalRoot.querySelector('#confirm-delete').addEventListener('click', () => {
+    state.recipes = state.recipes.filter((item) => item.id !== recipe.id);
+    state.selectedRecipe = null;
+    saveRecipes();
+    closeModal({ restore: false });
+    state.focusKey = `recipe-${recipe.id}`;
+    renderLibrary();
+    showToast('方案已删除');
+  });
+}
+
+function openApplyConfirm(recipe) {
+  openModal(`
+    <div class="modal-head"><div><div class="modal-tag">应用方案</div><h2 class="modal-title">应用画质方案</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <div class="confirm-icon">!</div>
+      <h3 class="confirm-title">应用到当前 ${escapeHtml(currentContext())}？</h3>
+      <p class="confirm-copy">“${escapeHtml(recipe.name)}”将修改当前图效下的画质参数。应用后可在“我的方案”中恢复本次应用前的设置。</p>
+      <div class="backup-note"><b>自动备份</b>　系统将先备份当前 ${escapeHtml(currentContext())} 的参数，再应用此方案。</div>
+    </div>
+    <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="confirm-apply">确认应用</button></div>`);
+  modalRoot.querySelector('#confirm-apply').addEventListener('click', () => {
+    const backup = { id: `backup-${Date.now()}`, name: `${state.signal} ${state.mode}应用前备份`, signal: state.signal, mode: state.mode, source: '自动备份', created: '刚刚', visual: state.signal === 'HDR' ? 'hdr' : state.signal === 'SDR' ? 'cinema' : 'dv', current: false };
+    state.recipes.forEach((item) => { item.current = false; });
+    let target = state.recipes.find((item) => item.name === recipe.name && item.signal === recipe.signal && item.mode === recipe.mode);
+    if (!target) { target = { id: `import-${Date.now()}`, ...recipe, source: '导入方案', visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv' }; state.recipes.unshift(target); }
+    target.current = true;
+    state.recipes.unshift(backup);
+    saveRecipes();
+    closeModal();
+    state.page = 'library';
+    state.selectedRecipe = target;
+    document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.page === 'library'));
+    const config = pageConfig.library; eyebrow.textContent = config.eyebrow; pageTitle.textContent = config.title; pageSubtitle.textContent = config.subtitle;
+    render();
+    showToast('方案已应用，已自动创建应用前备份');
+  });
+}
+
+function showToast(message) {
+  toastRoot.innerHTML = `<div class="toast">${escapeHtml(message)}</div>`;
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => { toastRoot.innerHTML = ''; }, 2800);
+}
+
+document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => setPage(button.dataset.page)));
+window.addEventListener('resize', updateDisplayScale);
+document.addEventListener('focusin', (event) => rememberFocus(event.target));
+document.addEventListener('keydown', (event) => {
+  const backKeys = ['Escape', 'Backspace', 'BrowserBack', 'GoBack', 'Back', 'MediaBack'];
+  if (backKeys.includes(event.key) && !(event.target instanceof HTMLInputElement && event.key === 'Backspace')) {
+    event.preventDefault();
+    handleBack();
+    return;
+  }
+  if (event.key === 'Enter' || event.key === 'NumpadEnter') {
+    const target = document.activeElement;
+    if (target instanceof HTMLInputElement) {
+      const actionId = target.id === 'share-code' ? 'import-submit' : target.id === 'recipe-name' ? 'name-next' : '';
+      if (actionId) {
+        event.preventDefault();
+        const action = modalRoot.querySelector(`#${actionId}`) || document.querySelector(`#${actionId}`);
+        action?.click();
+      }
+      return;
+    }
+    if (target instanceof HTMLButtonElement) {
+      event.preventDefault();
+      target.click();
+      return;
+    }
+  }
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  if (document.activeElement?.matches('input')) return;
+  event.preventDefault();
+  focusInDirection(event.key.slice(5).toLowerCase());
+});
+
+updateDisplayScale();
+setSecurityHome();

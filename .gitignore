@@ -1,0 +1,9 @@
+# 本地工具与过程资料（不属于线上 Demo）
+.codebuddy/
+feishu-doc-auth.png
+*.DS_Store
+
+# 产品需求与方案文档仅保留在本地
+【内外销】画质参数分享-PRD.md
+产品SR-功能列表版.md
+产品SR-画质参数分享备份与恢复方案.md
