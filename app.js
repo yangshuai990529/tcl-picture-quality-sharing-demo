@@ -26,6 +26,7 @@ const state = {
   previousFocusElement: null,
   previousFocusKey: null,
   busy: false,
+  privacyChecked: false,
   networkAvailable: localStorage.getItem('tcl-picture-network') !== 'offline',
   appliedContexts: JSON.parse(localStorage.getItem('tcl-picture-applied-contexts') || '{}'),
   cloudRecipes: JSON.parse(localStorage.getItem('tcl-picture-cloud-recipes') || '{}'),
@@ -43,6 +44,7 @@ const pageConfig = {
 };
 
 const DEMO_SHARE_CODE = '58372416';
+const PICTURE_SHARE_PRIVACY_VERSION = '2026-08-26-v2';
 const DEMO_SHARED_RECIPE = {
   id: 'demo-shared-host-game',
   name: '主机游戏 HDR',
@@ -555,10 +557,106 @@ function renderSecurityHome() {
         ${entries.map((entry) => `<button class="security-entry focusable ${entry.featured ? 'featured' : ''}" type="button" data-home-entry="${entry.kind}" data-focus-key="home-entry-${escapeHtml(entry.label)}"><span class="entry-icon">${entry.icon}</span><span>${entry.label}</span></button>`).join('')}
       </nav>
     </div>`;
-  securityHomeRoot.querySelectorAll('[data-home-entry="quality"]').forEach((button) => button.addEventListener('click', () => setPage('share')));
+  securityHomeRoot.querySelectorAll('[data-home-entry="quality"]').forEach((button) => button.addEventListener('click', () => enterPictureSharing()));
   securityHomeRoot.querySelectorAll('[data-home-entry="utility"]').forEach((button) => button.addEventListener('click', () => showToast('该功能为安全卫士的其他入口，本 Demo 暂未配置。')));
   securityHomeRoot.querySelector('#optimize-btn').addEventListener('click', () => showToast('优化完成：已清理 144 MB 系统垃圾'));
   restoreFocus(securityHomeRoot);
+}
+
+
+function hasAcceptedPictureSharePrivacy() {
+  return localStorage.getItem('tcl-picture-share-privacy-version') === PICTURE_SHARE_PRIVACY_VERSION;
+}
+
+function acceptPictureSharePrivacy() {
+  localStorage.setItem('tcl-picture-share-privacy-version', PICTURE_SHARE_PRIVACY_VERSION);
+}
+
+function enterPictureSharing() {
+  if (hasAcceptedPictureSharePrivacy()) {
+    setPage('share');
+    return;
+  }
+  openPictureSharePrivacyNotice();
+}
+
+function openPictureSharePrivacyNotice() {
+  openModal(`
+    <div class="modal-head privacy-modal-head">
+      <div><h2 class="modal-title">画质参数分享使用通知</h2></div>
+      <button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body privacy-modal-body">
+      <div class="privacy-copy">
+        <p>使用画质参数分享功能时，系统会收集当前方案的信号类型、图效及对应画质参数，并结合设备型号和软件版本生成分享方案。</p>
+        <p>生成或导入分享方案时，相关方案信息会上传至云端，用于生成分享码、查询方案及完成参数预览。上述信息仅用于画质参数分享功能，不会用于与本功能无关的用途。</p>
+        <p>我们会按照隐私保护要求对相关数据进行安全存储和传输。未保存到「我的方案」的本地内容不会因进入本功能而被修改。</p>
+      </div>
+      <div class="privacy-consent-row">
+        <label class="privacy-checkbox-label" for="picture-share-privacy-check">
+          <input class="privacy-checkbox focusable" id="picture-share-privacy-check" data-focus-key="privacy-check" data-autofocus type="checkbox" ${state.privacyChecked ? 'checked' : ''} />
+          <span class="privacy-checkbox-mark" aria-hidden="true"></span>
+          <span class="privacy-consent-text">我已阅读并同意</span>
+        </label>
+        <button class="privacy-link focusable" type="button" id="picture-share-privacy-detail" data-focus-key="privacy-detail">《画质参数分享隐私协议》</button>
+      </div>
+    </div>
+    <div class="modal-foot privacy-modal-foot">
+      <button class="secondary-btn focusable" type="button" id="picture-share-privacy-cancel" data-focus-key="privacy-cancel">取消</button>
+      <button class="primary-btn focusable" type="button" id="picture-share-privacy-agree" data-focus-key="privacy-agree" ${state.privacyChecked ? '' : 'disabled'}>同意</button>
+    </div>`, false, 'privacy-modal');
+
+  modalRoot.querySelector('.modal-close').addEventListener('click', () => { state.privacyChecked = false; });
+  const check = modalRoot.querySelector('#picture-share-privacy-check');
+  const agree = modalRoot.querySelector('#picture-share-privacy-agree');
+  const syncConsent = () => {
+    state.privacyChecked = check.checked;
+    agree.disabled = !state.privacyChecked;
+  };
+  check.addEventListener('change', syncConsent);
+  modalRoot.querySelector('#picture-share-privacy-detail').addEventListener('click', openPictureSharePrivacyDetail);
+  modalRoot.querySelector('#picture-share-privacy-cancel').addEventListener('click', () => {
+    state.privacyChecked = false;
+    closeModal();
+  });
+  agree.addEventListener('click', () => {
+    if (!state.privacyChecked) return;
+    acceptPictureSharePrivacy();
+    state.privacyChecked = false;
+    closeModal({ restore: false });
+    setPage('share');
+  });
+}
+
+function openPictureSharePrivacyDetail() {
+  openModal(`
+    <div class="modal-head privacy-modal-head">
+      <div><h2 class="modal-title">画质参数分享隐私协议</h2></div>
+      <button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body privacy-detail-body">
+      <section class="privacy-detail-section">
+        <h3>一、信息收集</h3>
+        <p>为完成画质参数分享、导入和预览，系统会收集方案名称、信号类型、图效、方案中包含的画质参数，以及设备型号和软件版本信息。</p>
+      </section>
+      <section class="privacy-detail-section">
+        <h3>二、信息使用与上传</h3>
+        <p>上述信息用于生成和校验分享码、查询分享方案、展示参数预览，以及将方案保存到本机「我的方案」。生成分享码或导入新方案时，方案数据可能上传至云端进行处理。</p>
+      </section>
+      <section class="privacy-detail-section">
+        <h3>三、信息保护</h3>
+        <p>系统会采取必要的安全措施保护方案数据。分享码与方案内容绑定，分享码失效或被撤回后，不能继续查询和导入；已经保存到本机的方案不受影响。</p>
+      </section>
+      <section class="privacy-detail-section">
+        <h3>四、你的权利</h3>
+        <p>你可以在「我的方案」中查看和删除已保存的方案。删除分享方案后，对应分享码将不可继续使用。你也可以随时停止使用画质参数分享功能。</p>
+      </section>
+    </div>
+    <div class="modal-foot privacy-modal-foot">
+      <button class="secondary-btn focusable" type="button" id="privacy-detail-back" data-focus-key="privacy-detail-back" data-autofocus>返回</button>
+    </div>`, false, 'privacy-modal');
+  modalRoot.querySelector('.modal-close').addEventListener('click', () => { state.privacyChecked = false; });
+  modalRoot.querySelector('#privacy-detail-back').addEventListener('click', openPictureSharePrivacyNotice);
 }
 
 function currentContext() {
@@ -628,6 +726,7 @@ function renderImport() {
       <section class="import-card">
         <h2>导入画质方案</h2>
         <p>输入他人分享的方案码。导入后可预览完整参数，并确认是否应用到当前图效。</p>
+        <div class="model-share-tip"><span>机型提示</span>支持 116Q10、100Q10、85Q10、75Q10、6Q10 用户的调色分享码，输入后即可一键应用。</div>
         <input id="share-code" data-focus-key="import-code" class="code-input focusable" maxlength="9" inputmode="numeric" value="${escapeHtml(formatShareCode(state.importedCode))}" placeholder="0000 0000" aria-label="画质方案分享码" />
         <div class="import-actions"><button class="primary-btn focusable" id="import-submit" data-focus-key="import-submit" type="button">导入方案</button></div>
         <div class="code-examples"><span>演示分享码：</span><button type="button" class="code-example focusable" data-focus-key="import-example" data-code="${DEMO_SHARE_CODE}">${formatShareCode(DEMO_SHARE_CODE)}</button></div>
@@ -780,7 +879,7 @@ function openModal(content, wide = false, variant = '') {
     backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeModal(); });
   }
   modalRoot.querySelectorAll('[data-modal-close]').forEach((button) => button.addEventListener('click', closeModal));
-  const first = modalRoot.querySelector('[data-autofocus], input, button');
+  const first = modalRoot.querySelector('[data-autofocus]') || modalRoot.querySelector('input, button');
   if (first) setTimeout(() => { first.focus(); rememberFocus(first); }, 0);
 }
 
@@ -885,6 +984,7 @@ function openShareCode(recipe) {
   openModal(`
     <div class="modal-head"><div><h2 class="modal-title">分享码已生成</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
+      <div class="model-share-tip"><span>机型提示</span>支持 116Q10、100Q10、85Q10、75Q10、6Q10 用户的调色分享码，导入后即可一键应用。</div>
       <div class="generated-code">${escapeHtml(formatShareCode(recipe.shareCode))}</div>
       <div class="code-copy-note">将分享码发送给好友，对方可在“导入分享方案”中查看并应用方案。</div>
     </div>
