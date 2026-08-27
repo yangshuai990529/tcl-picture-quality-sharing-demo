@@ -715,7 +715,6 @@ function renderShare() {
           <div><span>当前设备</span><b>TCL C11K MiniLED</b></div>
           <div><span>参数来源</span><b>${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</b></div>
         </div>
-        <div class="context-footer">已读取 ${parameters.length} 条画质菜单项</div>
       </aside>
     </div>`;
 
@@ -835,8 +834,8 @@ function renderRecipeDetail() {
           ${imported ? `<small>分享码：${escapeHtml(formatShareCode(shareCode) || '未生成')}</small>` : ''}
         </div>
         <div class="detail-buttons">
-          <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">${applied ? '取消应用' : '应用方案'}</button>
-          <button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>
+          <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">应用方案</button>
+          ${imported ? '' : '<button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>'}
           <button class="danger-btn focusable" type="button" id="detail-delete" data-focus-key="detail-delete">删除方案</button>
         </div>
       </aside>
@@ -845,8 +844,9 @@ function renderRecipeDetail() {
         ${parameterGroups(recipe.parameters || previewGroups)}
       </section>
     </div>`;
-  app.querySelector('#detail-share').addEventListener('click', () => generateShareCode(recipe));
-  app.querySelector('#detail-apply').addEventListener('click', () => applied ? openCancelApplyConfirm(recipe) : openApplyConfirm(recipe));
+  app.querySelector('#detail-share')?.addEventListener('click', () => generateShareCode(recipe));
+  // 应用后仍保留「应用方案」，允许用户重复进入确认流程并再次应用。
+  app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
   app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
   restoreFocus(app, 'detail-apply');
 }
@@ -980,6 +980,11 @@ function openParameterPreview(type, recipe) {
 }
 
 function generateShareCode(recipe) {
+  // 通过分享码导入并保存的本地方案只能查看、应用或删除，不能再次生成分享码。
+  if (recipe.source === '分享导入' || recipe.source === '导入方案') {
+    showToast('导入方案不支持再次分享。');
+    return;
+  }
   if (!state.networkAvailable || navigator.onLine === false) {
     showToast('网络不可用，请检查网络连接。');
     return;
@@ -1008,11 +1013,10 @@ function openShareCode(recipe) {
 
 function openDeleteConfirm(recipe) {
   openModal(`
-    <div class="modal-head"><div><h2 class="modal-title">确认删除方案？</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
+    <div class="modal-head"><div><h2 class="modal-title">删除“${escapeHtml(recipe.name)}”？</h2></div><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
-      <div class="confirm-icon delete-confirm-icon">!</div>
-      <h3 class="confirm-title">删除“${escapeHtml(recipe.name)}”</h3>
-      <p class="confirm-copy">删除后，该方案将从“我的方案”中移除，且无法恢复。</p>
+      <p class="confirm-copy">删除后，该方案将从「我的方案」中移除，且<strong>原分享码立即失效，无法再通过分享码导入该方案</strong>。</p>
+      <p class="confirm-copy delete-preserved-note"><strong>已通过分享码保存到本地的方案不受影响，可继续使用。</strong></p>
     </div>
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close data-autofocus data-focus-key="delete-cancel">取消</button><button class="danger-btn focusable" type="button" id="confirm-delete" data-focus-key="confirm-delete">确认删除</button></div>`);
   modalRoot.querySelector('#confirm-delete').addEventListener('click', () => {
@@ -1123,12 +1127,7 @@ function openApplyConfirm(recipe) {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="confirm-apply">确认应用</button></div>`);
   modalRoot.querySelector('#confirm-apply').addEventListener('click', async () => {
     if (state.busy) return;
-    if (isCurrentRecipeSame(recipe)) {
-      closeModal();
-      showToast('当前已应用该方案，无需重复应用。');
-      return;
-    }
-
+    // 即使当前已经是同一方案，也允许用户再次确认并重复应用。
     const fromDetail = Boolean(state.selectedRecipe);
     closeModal({ restore: false });
     state.busy = true;
