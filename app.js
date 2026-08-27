@@ -44,7 +44,7 @@ const pageConfig = {
 };
 
 const DEMO_SHARE_CODE = '58372416';
-const PICTURE_SHARE_PRIVACY_VERSION = '2026-08-26-v2';
+const PICTURE_SHARE_PRIVACY_VERSION = '2026-08-27-v3';
 const DEMO_SHARED_RECIPE = {
   id: 'demo-shared-host-game',
   name: '主机游戏 HDR',
