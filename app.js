@@ -782,7 +782,11 @@ function renderImport() {
 
 function renderLibrary() {
   if (state.selectedRecipe) return renderRecipeDetail();
-  const available = state.libraryTab === '全部' ? state.recipes : state.recipes.filter((recipe) => recipe.signal === state.libraryTab);
+  const available = state.libraryTab === '全部'
+    ? state.recipes
+    : state.recipes.filter((recipe) => state.libraryTab === 'HDR'
+      ? ['HDR', 'HLG'].includes(recipe.signal)
+      : recipe.signal === state.libraryTab);
   app.innerHTML = `
     <div class="library-page">
       <div class="library-head">
