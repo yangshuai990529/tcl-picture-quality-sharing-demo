@@ -255,6 +255,11 @@ function cloudSnapshot(recipe) {
   };
 }
 
+// 仅本机创建的方案可以生成和维护分享码；导入、历史或来源异常的方案都按不可分享处理。
+function isOwnedRecipe(recipe) {
+  return recipe?.source === '我创建的' || recipe?.source === '自己创建';
+}
+
 function ensureCloudShareSnapshots() {
   let changed = false;
   const demo = cloudSnapshot(DEMO_SHARED_RECIPE);
@@ -264,7 +269,7 @@ function ensureCloudShareSnapshots() {
   }
   state.recipes.forEach((recipe) => {
     const code = normalizeShareCode(recipe.shareCode);
-    const owner = recipe.source === '我创建的' || recipe.source === '自己创建';
+    const owner = isOwnedRecipe(recipe);
     if (!owner || !/^\d{8}$/.test(code) || (state.cloudRecipes[code] && state.cloudRecipes[code].parameters)) return;
     state.cloudRecipes[code] = cloudSnapshot(recipe);
     changed = true;
@@ -274,7 +279,7 @@ function ensureCloudShareSnapshots() {
 
 function removeCloudShare(recipe) {
   const code = normalizeShareCode(recipe.shareCode);
-  const owner = recipe.source === '我创建的' || recipe.source === '自己创建';
+  const owner = isOwnedRecipe(recipe);
   if (owner && /^\d{8}$/.test(code) && state.cloudRecipes[code]) {
     delete state.cloudRecipes[code];
     saveRecipes();
@@ -814,7 +819,7 @@ function recipeCard(recipe) {
 
 function renderRecipeDetail() {
   const recipe = state.selectedRecipe;
-  const imported = recipe.source === '分享导入' || recipe.source === '导入方案';
+  const imported = !isOwnedRecipe(recipe);
   const recipeType = imported ? '分享导入' : '自己创建';
   const shareCode = normalizeShareCode(recipe.shareCode);
   const applied = isRecipeApplied(recipe);
@@ -822,7 +827,7 @@ function renderRecipeDetail() {
     <div class="library-detail detail-focus-left">
       <aside class="detail-summary" aria-label="方案信息与操作">
         <h2>${escapeHtml(recipe.name)}</h2>
-        <p>本方案包含当前图像设置菜单中的画质参数定义，可再次分享或应用到匹配的图效环境。</p>
+        <p>${imported ? '本方案由分享码导入，可查看参数并应用到匹配的图效环境。' : '本方案包含当前图像设置菜单中的画质参数定义，可再次分享或应用到匹配的图效环境。'}</p>
         <div class="detail-facts">
           <div><span>信号类型</span><b>${escapeHtml(recipe.signal)}</b></div>
           <div><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
@@ -981,7 +986,7 @@ function openParameterPreview(type, recipe) {
 
 function generateShareCode(recipe) {
   // 通过分享码导入并保存的本地方案只能查看、应用或删除，不能再次生成分享码。
-  if (recipe.source === '分享导入' || recipe.source === '导入方案') {
+  if (!isOwnedRecipe(recipe)) {
     showToast('导入方案不支持再次分享。');
     return;
   }
