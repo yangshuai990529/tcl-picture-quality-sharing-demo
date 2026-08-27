@@ -342,7 +342,7 @@ body { min-height: 100dvh; overflow: auto; }
   .page-header { display: block; }
   .remote-hint { margin-top: 16px; }
   .content { padding-top: 27px; }
-  .choice-grid, .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .choice-grid, .signal-grid, .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .recipe-grid, .library-detail { grid-template-columns: 1fr; }
   .library-detail { height: auto; overflow: visible; }
   .detail-summary { min-height: 0; }
@@ -654,8 +654,41 @@ body { min-height: 100dvh; overflow: auto; }
   height: auto;
   min-height: 0;
   margin: auto;
-  align-items: center;
+  align-items: start;
 }
+/* 横向卡片轮播：信号完整展示，图效较多时通过遥控器左右键继续浏览。 */
+.choice-carousel { min-width: 0; overflow: hidden; }
+.carousel-track {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 3px 4px 11px;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 34%;
+  scrollbar-width: none;
+}
+.carousel-track::-webkit-scrollbar { display: none; }
+.choice-carousel .choice {
+  flex: 0 0 clamp(170px, 15vw, 236px);
+  min-width: 0;
+  scroll-snap-align: center;
+}
+.signal-carousel .carousel-track { padding-inline: 0; }
+.signal-carousel .choice { flex: 1 1 0; }
+.mode-carousel { position: relative; }
+.mode-carousel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 34px;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, #0b0f16 88%);
+}
+.context-card { align-self: start; margin-top: 0; }
 .import-layout {
   width: min(760px, 100%);
   margin: auto;
@@ -743,4 +776,10 @@ body { min-height: 100dvh; overflow: auto; }
 @media (max-width: 700px) {
   .model-share-tip { margin-top: -3px; }
   .import-card .model-share-tip { margin-top: -7px; }
+}
+
+@media (max-width: 700px) {
+  .choice-carousel .choice { flex-basis: min(72vw, 260px); }
+  .signal-carousel .carousel-track { overflow-x: auto; padding-inline: 4px; }
+  .signal-carousel .choice { flex: 0 0 min(60vw, 220px); }
 }

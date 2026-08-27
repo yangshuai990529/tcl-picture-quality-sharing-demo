@@ -17,7 +17,7 @@ const parameters = data.items;
 const state = {
   page: 'home',
   signal: 'HDR',
-  mode: '影院',
+  mode: 'TSR鲜艳',
   draftName: '我的夜间影院',
   importedCode: '',
   libraryTab: '全部',
@@ -311,9 +311,9 @@ function appliedRecordForContext(key) {
 
 function findAppliedContextForRecipe(recipe) {
   if (!recipe) return null;
-  const currentKey = contextKey(state.signal, state.mode);
-  const currentRecord = appliedRecordForContext(currentKey);
-  if (sameRecipeReference(recipe, currentRecord)) return { key: currentKey, record: currentRecord };
+  const recipeKey = contextKey(recipe.signal, recipe.mode);
+  const recipeRecord = appliedRecordForContext(recipeKey);
+  if (sameRecipeReference(recipe, recipeRecord)) return { key: recipeKey, record: recipeRecord };
   for (const [key, record] of Object.entries(state.appliedContexts)) {
     if (sameRecipeReference(recipe, record)) return { key, record };
   }
@@ -321,8 +321,8 @@ function findAppliedContextForRecipe(recipe) {
 }
 
 function isRecipeApplied(recipe) {
-  const currentRecord = appliedRecordForContext(contextKey(state.signal, state.mode));
-  return sameRecipeReference(recipe, currentRecord);
+  const recipeRecord = appliedRecordForContext(contextKey(recipe.signal, recipe.mode));
+  return sameRecipeReference(recipe, recipeRecord);
 }
 
 function findRecipeByReference(reference) {
@@ -675,11 +675,12 @@ function render() {
 }
 
 function renderShare() {
-  const signals = ['SDR', 'HDR', 'Dolby Vision'];
+  const signals = ['SDR', 'HDR', 'HLG', 'Dolby Vision'];
   const modeMap = {
-    SDR: ['标准', '电影/图片', '游戏', 'HDR增强'],
-    HDR: ['标准', '影院', '游戏', '专家'],
-    'Dolby Vision': ['杜比视界明亮', '柔和', '游戏', 'IQ'],
+    SDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', '电影', '游戏', '射击游戏', '角色扮演', '办公', '专家', '自然', '鲜艳', '原彩'],
+    HDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
+    HLG: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
+    'Dolby Vision': ['TSR鲜艳', '杜比视界明亮', 'FILMMAKER MODE', '杜比视界游戏', '射击游戏', '角色扮演', '杜比视界IQ'],
   };
   const modes = modeMap[state.signal];
   if (!modes.includes(state.mode)) state.mode = modes[0];
@@ -690,14 +691,18 @@ function renderShare() {
         <div class="section-lead"><h2>选择画质环境</h2><p>方案将保存当前所选信号类型和图效下的画质菜单参数。</p></div>
         <div class="choice-block">
           <div class="choice-label">信号类型</div>
-          <div class="choice-grid">
-            ${signals.map((signal) => `<button class="choice focusable ${signal === state.signal ? 'selected' : ''}" type="button" data-signal="${signal}" data-focus-key="signal-${signal}"><span class="choice-value">${signal}</span></button>`).join('')}
+          <div class="choice-carousel signal-carousel" aria-label="信号类型横向选择">
+            <div class="carousel-track">
+              ${signals.map((signal) => `<button class="choice focusable ${signal === state.signal ? 'selected' : ''}" type="button" data-signal="${signal}" data-focus-key="signal-${signal}"><span class="choice-value">${signal}</span></button>`).join('')}
+            </div>
           </div>
         </div>
         <div class="choice-block">
           <div class="choice-label">图效</div>
-          <div class="choice-grid mode-grid">
-            ${modes.map((mode) => `<button class="choice focusable ${mode === state.mode ? 'selected' : ''}" type="button" data-mode="${mode}" data-focus-key="mode-${mode}"><span class="choice-value">${mode}</span></button>`).join('')}
+          <div class="choice-carousel mode-carousel" aria-label="图效横向选择">
+            <div class="carousel-track">
+              ${modes.map((mode) => `<button class="choice focusable ${mode === state.mode ? 'selected' : ''}" type="button" data-mode="${mode}" data-focus-key="mode-${mode}"><span class="choice-value">${mode}</span></button>`).join('')}
+            </div>
           </div>
         </div>
         <div class="share-actions"><button class="primary-btn focusable" id="share-start" data-focus-key="share-start" type="button">去分享</button></div>
@@ -718,6 +723,10 @@ function renderShare() {
   app.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => { state.mode = button.dataset.mode; renderShare(); }));
   app.querySelector('#share-start').addEventListener('click', openNameModal);
   restoreFocus(app);
+  // 图效过多时以横向卡片轮播展示；每次选择后将当前图效自动保持在可视区域。
+  requestAnimationFrame(() => {
+    app.querySelector('.mode-carousel .choice.selected')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  });
 }
 
 function renderImport() {
@@ -1023,15 +1032,16 @@ function openDeleteConfirm(recipe) {
 }
 
 function isCurrentRecipeSame(recipe) {
-  const currentRecord = appliedRecordForContext(contextKey(state.signal, state.mode));
-  return sameRecipeReference(recipe, currentRecord);
+  const recipeRecord = appliedRecordForContext(contextKey(recipe.signal, recipe.mode));
+  return sameRecipeReference(recipe, recipeRecord);
 }
 
 function applyRecipeToDevice(recipe) {
   if (recipe.applyAvailable === false) return { ok: false };
 
-  const targetSignal = state.signal;
-  const targetMode = state.mode;
+  // 应用目标始终以方案自身的「信号 + 图效」为准，避免预览与确认弹窗信息不一致。
+  const targetSignal = recipe.signal;
+  const targetMode = recipe.mode;
   const key = contextKey(targetSignal, targetMode);
   const previous = appliedRecordForContext(key);
   const recipeCode = normalizeShareCode(recipe.shareCode);
@@ -1057,6 +1067,9 @@ function applyRecipeToDevice(recipe) {
 
 function finishApplySuccess(result) {
   closeLoadingModal();
+  // 应用成功后，当前信号和图效同步到已应用方案，后续页面展示保持一致。
+  state.signal = result.target.signal;
+  state.mode = result.target.mode;
   state.page = 'library';
   state.selectedRecipe = result.target;
   state.focusKey = 'detail-apply';
@@ -1094,7 +1107,8 @@ function finishApplyFailure(recipe, fromDetail) {
 }
 
 function openApplyConfirm(recipe) {
-  const context = currentContext();
+  // 标题、说明和覆盖提示均使用方案自身的信号与图效。
+  const context = recipeContext(recipe);
   openModal(`
     <div class="modal-head"><h2 class="modal-title">应用到当前 ${escapeHtml(context)}？</h2><button class="modal-close focusable" type="button" data-modal-close aria-label="关闭">×</button></div>
     <div class="modal-body">
@@ -1136,7 +1150,7 @@ function openCancelApplyConfirm(recipe) {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="danger-btn focusable" type="button" id="confirm-cancel-apply">确认取消</button></div>`);
   modalRoot.querySelector('#confirm-cancel-apply').addEventListener('click', () => {
     if (state.busy) return;
-    const key = contextKey(state.signal, state.mode);
+    const key = contextKey(recipe.signal, recipe.mode);
     const record = appliedRecordForContext(key);
     if (!sameRecipeReference(recipe, record)) {
       closeModal();
