@@ -334,9 +334,7 @@ function sameRecipeReference(recipe, reference) {
   if (!recipe || !reference) return false;
   const recipeCode = normalizeShareCode(recipe.shareCode);
   if (recipeCode && reference.shareCode) return recipeCode === reference.shareCode;
-  return recipe.id === reference.id
-    || (getInputSource(recipe) === getInputSource(reference)
-      && recipe.name === reference.name && recipe.signal === reference.signal && recipe.mode === reference.mode);
+  return Boolean(recipe.id) && recipe.id === reference.id;
 }
 
 function appliedRecordForContext(key) {
@@ -379,7 +377,11 @@ function migrateAppliedContextKeys() {
     }
     const [signal, mode] = parts;
     const nextKey = contextKey(getInputSource(record), signal, mode);
-    migrated[nextKey] = { ...record, inputSource: getInputSource(record) };
+    const migratedRecord = { ...record, inputSource: getInputSource(record) };
+    if (migratedRecord.previous) {
+      migratedRecord.previous = { ...migratedRecord.previous, inputSource: getInputSource(migratedRecord.previous) };
+    }
+    migrated[nextKey] = migratedRecord;
     changed = true;
   });
   if (changed) {
@@ -892,6 +894,7 @@ function renderRecipeDetail() {
         </div>
         <div class="detail-buttons">
           <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">应用方案</button>
+          ${applied ? '<button class="secondary-btn focusable" type="button" id="detail-cancel-apply" data-focus-key="detail-cancel-apply">取消应用</button>' : ''}
           ${imported ? '' : '<button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>'}
           <button class="danger-btn focusable" type="button" id="detail-delete" data-focus-key="detail-delete">删除方案</button>
         </div>
@@ -904,6 +907,7 @@ function renderRecipeDetail() {
   app.querySelector('#detail-share')?.addEventListener('click', () => generateShareCode(recipe));
   // 应用后仍保留「应用方案」，允许用户重复进入确认流程并再次应用。
   app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
+  app.querySelector('#detail-cancel-apply')?.addEventListener('click', () => openCancelApplyConfirm(recipe));
   app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
   restoreFocus(app, 'detail-apply');
 }
@@ -998,7 +1002,7 @@ function openNameModal() {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="name-next">下一步</button></div>`);
   modalRoot.querySelector('#name-next').addEventListener('click', () => {
     state.draftName = modalRoot.querySelector('#recipe-name').value.trim() || '未命名画质方案';
-    openParameterPreview('share', { name: state.draftName, inputSource: state.inputSource, signal: state.signal, mode: state.mode, created: '刚刚', source: '我创建的' });
+    openParameterPreview('share', { id: `r-${Date.now()}`, name: state.draftName, inputSource: state.inputSource, signal: state.signal, mode: state.mode, created: '刚刚', source: '我创建的' });
   });
 }
 
@@ -1050,10 +1054,17 @@ function generateShareCode(recipe) {
   recipe.shareCode = generateUniqueShareCode(recipe);
   recipe.saved = true;
   const result = saveRecipeToLibrary(recipe);
+  if (result.limit) {
+    // 方案未入库时不生成云端分享码，避免产生无法吊销的孤儿分享码。
+    recipe.shareCode = '';
+    recipe.saved = false;
+    showToast('方案数量已达上限，请删除部分方案后重试。');
+    return;
+  }
   state.cloudRecipes[recipe.shareCode] = cloudSnapshot(recipe);
   saveRecipes();
   openShareCode(recipe);
-  showToast(result.limit ? '分享码已生成，方案未保存至我的方案。' : '分享码已生成');
+  showToast('分享码已生成');
 }
 
 function openShareCode(recipe) {
