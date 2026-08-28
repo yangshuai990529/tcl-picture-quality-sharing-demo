@@ -945,7 +945,7 @@ function openNameModal() {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="name-next">下一步</button></div>`);
   modalRoot.querySelector('#name-next').addEventListener('click', () => {
     state.draftName = modalRoot.querySelector('#recipe-name').value.trim() || '未命名画质方案';
-    openParameterPreview('share', { name: state.draftName, signal: state.signal, mode: state.mode, created: '刚刚' });
+    openParameterPreview('share', { name: state.draftName, signal: state.signal, mode: state.mode, created: '刚刚', source: '我创建的' });
   });
 }
 
