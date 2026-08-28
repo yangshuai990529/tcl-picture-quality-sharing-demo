@@ -875,7 +875,6 @@ function renderRecipeDetail() {
   const imported = !isOwnedRecipe(recipe);
   const recipeType = imported ? '分享导入' : '自己创建';
   const shareCode = normalizeShareCode(recipe.shareCode);
-  const applied = isRecipeApplied(recipe);
   app.innerHTML = `
     <div class="library-detail detail-focus-left">
       <aside class="detail-summary" aria-label="方案信息与操作">
@@ -894,7 +893,6 @@ function renderRecipeDetail() {
         </div>
         <div class="detail-buttons">
           <button class="primary-btn focusable" type="button" id="detail-apply" data-focus-key="detail-apply">应用方案</button>
-          ${applied ? '<button class="secondary-btn focusable" type="button" id="detail-cancel-apply" data-focus-key="detail-cancel-apply">取消应用</button>' : ''}
           ${imported ? '' : '<button class="secondary-btn focusable" type="button" id="detail-share" data-focus-key="detail-share">分享方案</button>'}
           <button class="danger-btn focusable" type="button" id="detail-delete" data-focus-key="detail-delete">删除方案</button>
         </div>
@@ -907,7 +905,6 @@ function renderRecipeDetail() {
   app.querySelector('#detail-share')?.addEventListener('click', () => generateShareCode(recipe));
   // 应用后仍保留「应用方案」，允许用户重复进入确认流程并再次应用。
   app.querySelector('#detail-apply').addEventListener('click', () => openApplyConfirm(recipe));
-  app.querySelector('#detail-cancel-apply')?.addEventListener('click', () => openCancelApplyConfirm(recipe));
   app.querySelector('#detail-delete').addEventListener('click', () => openDeleteConfirm(recipe));
   restoreFocus(app, 'detail-apply');
 }
