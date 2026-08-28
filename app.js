@@ -16,6 +16,7 @@ const parameters = data.items;
 
 const state = {
   page: 'home',
+  inputSource: 'HDMI 1',
   signal: 'HDR',
   mode: 'TSR鲜艳',
   draftName: '我的夜间影院',
@@ -31,14 +32,23 @@ const state = {
   appliedContexts: JSON.parse(localStorage.getItem('tcl-picture-applied-contexts') || '{}'),
   cloudRecipes: JSON.parse(localStorage.getItem('tcl-picture-cloud-recipes') || '{}'),
   recipes: JSON.parse(localStorage.getItem('tcl-picture-recipes') || 'null') || [
-    { id: 'r1', name: '主机游戏 HDR', signal: 'HDR', mode: '游戏', source: '我创建的', created: '今天 14:25', visual: 'hdr', current: true },
-    { id: 'r2', name: '周末影院', signal: 'SDR', mode: '电影/图片', source: '我创建的', created: '昨天 21:16', visual: 'cinema' },
-    { id: 'r3', name: '杜比视界柔和', signal: 'Dolby Vision', mode: '柔和', source: '导入方案', created: '2026.08.21', visual: 'dv' },
+    { id: 'r1', name: '主机游戏 HDR', inputSource: 'HDMI 1', signal: 'HDR', mode: '游戏', source: '我创建的', created: '今天 14:25', visual: 'hdr', current: true },
+    { id: 'r2', name: '周末影院', inputSource: 'HDMI 2', signal: 'SDR', mode: '电影/图片', source: '我创建的', created: '昨天 21:16', visual: 'cinema' },
+    { id: 'r3', name: '杜比视界柔和', inputSource: 'VOD', signal: 'Dolby Vision', mode: '柔和', source: '导入方案', created: '2026.08.21', visual: 'dv' },
   ],
 };
 
+const inputSources = ['HDMI 1', 'HDMI 2', 'VOD'];
+const signalTypes = ['SDR', 'HDR', 'HLG', 'Dolby Vision'];
+const modeMap = {
+  SDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', '电影', '游戏', '射击游戏', '角色扮演', '办公', '专家', '自然', '鲜艳', '原彩'],
+  HDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
+  HLG: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
+  'Dolby Vision': ['TSR鲜艳', '杜比视界明亮', 'FILMMAKER MODE', '杜比视界游戏', '射击游戏', '角色扮演', '杜比视界IQ'],
+};
+
 const pageConfig = {
-  share: { eyebrow: '分享参数', title: '分享画质参数', subtitle: '请选择需要分享的信号类型及图效' },
+  share: { eyebrow: '分享参数', title: '分享画质参数', subtitle: '请选择信源、信号类型及图效' },
   import: { eyebrow: '导入方案', title: '导入画质方案', subtitle: '输入分享码，查看并应用他人分享的画质方案' },
   library: { eyebrow: '我的方案', title: '我的方案', subtitle: '查看、应用或管理已保存的画质方案' },
 };
@@ -48,6 +58,7 @@ const PICTURE_SHARE_PRIVACY_VERSION = '2026-08-27-v3';
 const DEMO_SHARED_RECIPE = {
   id: 'demo-shared-host-game',
   name: '主机游戏 HDR',
+  inputSource: 'HDMI 1',
   signal: 'HDR',
   mode: '游戏',
   source: '导入方案',
@@ -135,6 +146,20 @@ function saveRecipes() {
 
 const MAX_LIBRARY_RECIPES = 30;
 
+function getInputSource(recipe) {
+  return inputSources.includes(recipe?.inputSource) ? recipe.inputSource : 'HDMI 1';
+}
+
+function normalizeRecipeInputSources() {
+  let changed = false;
+  state.recipes.forEach((recipe) => {
+    if (getInputSource(recipe) === recipe.inputSource) return;
+    recipe.inputSource = 'HDMI 1';
+    changed = true;
+  });
+  if (changed) saveRecipes();
+}
+
 function saveRecipeToLibrary(recipe, source = '我创建的') {
   const shareCode = normalizeShareCode(recipe.shareCode);
   const hasShareCode = /^\d{8}$/.test(shareCode);
@@ -157,6 +182,7 @@ function saveRecipeToLibrary(recipe, source = '我创建的') {
     ...recipe,
     shareCode: hasShareCode ? shareCode : '',
     source,
+    inputSource: getInputSource(recipe),
     visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
     current: false,
   };
@@ -241,6 +267,7 @@ function cloudSnapshot(recipe) {
   return {
     id: recipe.id,
     name: recipe.name,
+    inputSource: getInputSource(recipe),
     signal: recipe.signal,
     mode: recipe.mode,
     shareCode: normalizeShareCode(recipe.shareCode),
@@ -287,8 +314,8 @@ function removeCloudShare(recipe) {
 }
 
 
-function contextKey(signal, mode) {
-  return `${signal}::${mode}`;
+function contextKey(inputSource, signal, mode) {
+  return `${inputSource}::${signal}::${mode}`;
 }
 
 function recipeReference(recipe, previous = null) {
@@ -296,6 +323,7 @@ function recipeReference(recipe, previous = null) {
     id: recipe.id || '',
     shareCode: normalizeShareCode(recipe.shareCode),
     name: recipe.name,
+    inputSource: getInputSource(recipe),
     signal: recipe.signal,
     mode: recipe.mode,
     previous,
@@ -307,7 +335,8 @@ function sameRecipeReference(recipe, reference) {
   const recipeCode = normalizeShareCode(recipe.shareCode);
   if (recipeCode && reference.shareCode) return recipeCode === reference.shareCode;
   return recipe.id === reference.id
-    || (recipe.name === reference.name && recipe.signal === reference.signal && recipe.mode === reference.mode);
+    || (getInputSource(recipe) === getInputSource(reference)
+      && recipe.name === reference.name && recipe.signal === reference.signal && recipe.mode === reference.mode);
 }
 
 function appliedRecordForContext(key) {
@@ -316,7 +345,7 @@ function appliedRecordForContext(key) {
 
 function findAppliedContextForRecipe(recipe) {
   if (!recipe) return null;
-  const recipeKey = contextKey(recipe.signal, recipe.mode);
+  const recipeKey = contextKey(getInputSource(recipe), recipe.signal, recipe.mode);
   const recipeRecord = appliedRecordForContext(recipeKey);
   if (sameRecipeReference(recipe, recipeRecord)) return { key: recipeKey, record: recipeRecord };
   for (const [key, record] of Object.entries(state.appliedContexts)) {
@@ -326,7 +355,7 @@ function findAppliedContextForRecipe(recipe) {
 }
 
 function isRecipeApplied(recipe) {
-  const recipeRecord = appliedRecordForContext(contextKey(recipe.signal, recipe.mode));
+  const recipeRecord = appliedRecordForContext(contextKey(getInputSource(recipe), recipe.signal, recipe.mode));
   return sameRecipeReference(recipe, recipeRecord);
 }
 
@@ -339,11 +368,31 @@ function setRecipeCurrent(recipe, current) {
   if (recipe) recipe.current = current;
 }
 
+function migrateAppliedContextKeys() {
+  const migrated = {};
+  let changed = false;
+  Object.entries(state.appliedContexts).forEach(([key, record]) => {
+    const parts = key.split('::');
+    if (parts.length !== 2) {
+      migrated[key] = record;
+      return;
+    }
+    const [signal, mode] = parts;
+    const nextKey = contextKey(getInputSource(record), signal, mode);
+    migrated[nextKey] = { ...record, inputSource: getInputSource(record) };
+    changed = true;
+  });
+  if (changed) {
+    state.appliedContexts = migrated;
+    saveRecipes();
+  }
+}
+
 function migrateCurrentRecipe() {
   if (Object.keys(state.appliedContexts).length) return;
   const current = state.recipes.find((recipe) => recipe.current);
   if (!current) return;
-  state.appliedContexts[contextKey(current.signal, current.mode)] = recipeReference(current);
+  state.appliedContexts[contextKey(getInputSource(current), current.signal, current.mode)] = recipeReference(current);
   saveRecipes();
 }
 
@@ -514,7 +563,7 @@ function setPage(page) {
   state.selectedRecipe = null;
   if (fromHome) {
     state.focusKey = page === 'share'
-      ? `signal-${state.signal}`
+      ? 'input-source-hdmi-1'
       : page === 'import'
         ? 'import-code'
         : 'library-tab-全部';
@@ -665,12 +714,13 @@ function openPictureSharePrivacyDetail() {
 }
 
 function currentContext() {
-  return `${state.signal}${state.signal === 'HDR' ? '10' : ''} · ${state.mode}模式`;
+  const signal = state.signal === 'HDR' ? 'HDR10' : state.signal;
+  return `${state.inputSource} · ${signal} · ${state.mode}模式`;
 }
 
 function recipeContext(recipe) {
   const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
-  return `${signal} · ${recipe.mode}模式`;
+  return `${getInputSource(recipe)} · ${signal} · ${recipe.mode}模式`;
 }
 
 function render() {
@@ -680,25 +730,26 @@ function render() {
 }
 
 function renderShare() {
-  const signals = ['SDR', 'HDR', 'HLG', 'Dolby Vision'];
-  const modeMap = {
-    SDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', '电影', '游戏', '射击游戏', '角色扮演', '办公', '专家', '自然', '鲜艳', '原彩'],
-    HDR: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
-    HLG: ['TSR鲜艳', '标准', 'FILMMAKER MODE', 'IMAX', '游戏', '射击游戏', '角色扮演', '办公', '专家'],
-    'Dolby Vision': ['TSR鲜艳', '杜比视界明亮', 'FILMMAKER MODE', '杜比视界游戏', '射击游戏', '角色扮演', '杜比视界IQ'],
-  };
   const modes = modeMap[state.signal];
   if (!modes.includes(state.mode)) state.mode = modes[0];
 
   app.innerHTML = `
     <div class="share-layout">
       <div class="form-stage">
-        <div class="section-lead"><h2>选择画质环境</h2><p>方案将保存当前所选信号类型和图效下的画质菜单参数。</p></div>
+        <div class="section-lead"><h2>选择画质环境</h2><p>请先选择信源，再选择信号类型和图效，方案将保存当前环境下的画质菜单参数。</p></div>
+        <div class="choice-block">
+          <div class="choice-label">信源</div>
+          <div class="choice-carousel source-carousel" aria-label="信源横向选择">
+            <div class="carousel-track">
+              ${inputSources.map((source) => `<button class="choice focusable ${source === state.inputSource ? 'selected' : ''}" type="button" data-input-source="${source}" data-focus-key="input-source-${source.replaceAll(' ', '-').toLowerCase()}"><span class="choice-value">${source}</span></button>`).join('')}
+            </div>
+          </div>
+        </div>
         <div class="choice-block">
           <div class="choice-label">信号类型</div>
           <div class="choice-carousel signal-carousel" aria-label="信号类型横向选择">
             <div class="carousel-track">
-              ${signals.map((signal) => `<button class="choice focusable ${signal === state.signal ? 'selected' : ''}" type="button" data-signal="${signal}" data-focus-key="signal-${signal}"><span class="choice-value">${signal}</span></button>`).join('')}
+              ${signalTypes.map((signal) => `<button class="choice focusable ${signal === state.signal ? 'selected' : ''}" type="button" data-signal="${signal}" data-focus-key="signal-${signal}"><span class="choice-value">${signal}</span></button>`).join('')}
             </div>
           </div>
         </div>
@@ -714,20 +765,20 @@ function renderShare() {
       </div>
       <aside class="context-card" aria-label="当前待分享画质环境">
         <div class="context-overline">当前画质</div>
-        <h3>${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</h3>
-        <p>当前画质参数将生成分享方案，同一信号类型下均可使用。接收方导入后可查看参数并确认应用。</p>
+        <h3>${escapeHtml(state.inputSource)} · ${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</h3>
+        <p>当前画质参数将生成分享方案，同一信源、信号类型和图效下可使用。接收方导入后可查看参数并确认应用。</p>
         <div class="context-meta">
           <div><span>当前设备</span><b>TCL C11K MiniLED</b></div>
-          <div><span>参数来源</span><b>${escapeHtml(state.signal)} · ${escapeHtml(state.mode)}</b></div>
+          <div><span>参数来源</span><b>${escapeHtml(currentContext())}</b></div>
         </div>
       </aside>
     </div>`;
 
+  app.querySelectorAll('[data-input-source]').forEach((button) => button.addEventListener('click', () => { state.inputSource = button.dataset.inputSource; renderShare(); }));
   app.querySelectorAll('[data-signal]').forEach((button) => button.addEventListener('click', () => { state.signal = button.dataset.signal; renderShare(); }));
   app.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => { state.mode = button.dataset.mode; renderShare(); }));
   app.querySelector('#share-start').addEventListener('click', openNameModal);
   restoreFocus(app);
-  // 图效过多时以横向卡片轮播展示；每次选择后将当前图效自动保持在可视区域。
   requestAnimationFrame(() => {
     app.querySelector('.mode-carousel .choice.selected')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   });
@@ -813,7 +864,7 @@ function recipeCard(recipe) {
     <span class="recipe-tag">${escapeHtml(recipe.signal)}</span>
     <span class="recipe-meta ${isRecipeApplied(recipe) ? 'current' : ''}">${isRecipeApplied(recipe) ? '当前使用' : escapeHtml(recipe.source)}</span>
     <h3>${escapeHtml(recipe.name)}</h3>
-    <p>${escapeHtml(recipe.mode)} · ${escapeHtml(recipe.created)}</p>
+    <p>${escapeHtml(getInputSource(recipe))} · ${escapeHtml(recipe.mode)} · ${escapeHtml(recipe.created)}</p>
   </button>`;
 }
 
@@ -829,6 +880,7 @@ function renderRecipeDetail() {
         <h2>${escapeHtml(recipe.name)}</h2>
         <p>${imported ? '本方案由分享码导入，可查看参数并应用到匹配的图效环境。' : '本方案包含当前图像设置菜单中的画质参数定义，可再次分享或应用到匹配的图效环境。'}</p>
         <div class="detail-facts">
+          <div><span>信源</span><b>${escapeHtml(getInputSource(recipe))}</b></div>
           <div><span>信号类型</span><b>${escapeHtml(recipe.signal)}</b></div>
           <div><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
           <div><span>保存时间</span><b>${escapeHtml(recipe.created)}</b></div>
@@ -877,6 +929,7 @@ function previewFacts(recipe, type) {
   const signal = recipe.signal === 'HDR' ? 'HDR10' : recipe.signal;
   return `<div class="preview-facts">
     <div class="preview-fact"><span>方案名称</span><b>${escapeHtml(recipe.name)}</b></div>
+    <div class="preview-fact"><span>信源</span><b>${escapeHtml(getInputSource(recipe))}</b></div>
     <div class="preview-fact"><span>信号</span><b>${escapeHtml(signal)}</b></div>
     <div class="preview-fact"><span>图效</span><b>${escapeHtml(recipe.mode)}</b></div>
     <div class="preview-fact"><span>状态</span><b id="preview-status">${escapeHtml(status)}</b></div>
@@ -945,7 +998,7 @@ function openNameModal() {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="primary-btn focusable" type="button" id="name-next">下一步</button></div>`);
   modalRoot.querySelector('#name-next').addEventListener('click', () => {
     state.draftName = modalRoot.querySelector('#recipe-name').value.trim() || '未命名画质方案';
-    openParameterPreview('share', { name: state.draftName, signal: state.signal, mode: state.mode, created: '刚刚', source: '我创建的' });
+    openParameterPreview('share', { name: state.draftName, inputSource: state.inputSource, signal: state.signal, mode: state.mode, created: '刚刚', source: '我创建的' });
   });
 }
 
@@ -1045,7 +1098,7 @@ function openDeleteConfirm(recipe) {
 }
 
 function isCurrentRecipeSame(recipe) {
-  const recipeRecord = appliedRecordForContext(contextKey(recipe.signal, recipe.mode));
+  const recipeRecord = appliedRecordForContext(contextKey(getInputSource(recipe), recipe.signal, recipe.mode));
   return sameRecipeReference(recipe, recipeRecord);
 }
 
@@ -1053,9 +1106,10 @@ function applyRecipeToDevice(recipe) {
   if (recipe.applyAvailable === false) return { ok: false };
 
   // 应用目标始终以方案自身的「信号 + 图效」为准，避免预览与确认弹窗信息不一致。
+  const targetInputSource = getInputSource(recipe);
   const targetSignal = recipe.signal;
   const targetMode = recipe.mode;
-  const key = contextKey(targetSignal, targetMode);
+  const key = contextKey(targetInputSource, targetSignal, targetMode);
   const previous = appliedRecordForContext(key);
   const recipeCode = normalizeShareCode(recipe.shareCode);
   let target = recipe.id && state.recipes.find((item) => item.id === recipe.id);
@@ -1064,6 +1118,7 @@ function applyRecipeToDevice(recipe) {
     target = {
       id: `import-${Date.now()}`,
       ...recipe,
+      inputSource: targetInputSource,
       source: '分享导入',
       visual: recipe.signal === 'HDR' ? 'hdr' : recipe.signal === 'SDR' ? 'cinema' : 'dv',
     };
@@ -1081,6 +1136,7 @@ function applyRecipeToDevice(recipe) {
 function finishApplySuccess(result) {
   closeLoadingModal();
   // 应用成功后，当前信号和图效同步到已应用方案，后续页面展示保持一致。
+  state.inputSource = getInputSource(result.target);
   state.signal = result.target.signal;
   state.mode = result.target.mode;
   state.page = 'library';
@@ -1158,7 +1214,7 @@ function openCancelApplyConfirm(recipe) {
     <div class="modal-foot"><button class="secondary-btn focusable" type="button" data-modal-close>取消</button><button class="danger-btn focusable" type="button" id="confirm-cancel-apply">确认取消</button></div>`);
   modalRoot.querySelector('#confirm-cancel-apply').addEventListener('click', () => {
     if (state.busy) return;
-    const key = contextKey(recipe.signal, recipe.mode);
+    const key = contextKey(getInputSource(recipe), recipe.signal, recipe.mode);
     const record = appliedRecordForContext(key);
     if (!sameRecipeReference(recipe, record)) {
       closeModal();
@@ -1240,6 +1296,8 @@ document.addEventListener('keydown', (event) => {
 
 removeLegacyAutoBackups();
 normalizeImportedRecipeSources();
+normalizeRecipeInputSources();
+migrateAppliedContextKeys();
 migrateCurrentRecipe();
 ensureImportedShareCodes();
 ensureCloudShareSnapshots();

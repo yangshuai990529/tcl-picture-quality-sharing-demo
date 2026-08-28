@@ -784,3 +784,17 @@ body { min-height: 100dvh; overflow: auto; }
 
 .delete-preserved-note { margin-top: 14px; }
 .delete-preserved-note strong { color: #e9eef6; font-weight: 600; }
+
+/* 信源、信号类型与图效均使用电视端横向卡片选择。 */
+.source-carousel .choice { flex: 1 1 0; }
+.preview-facts { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1500px) {
+  .preview-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .preview-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .preview-facts { grid-template-columns: 1fr; }
+  .source-carousel .choice { flex: 0 0 min(60vw, 220px); }
+}
